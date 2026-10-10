@@ -1,0 +1,14 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoload = [__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'];
+foreach ($autoload as $path) {
+    if (is_file($path)) {
+        require $path;
+        exit(\Hanji\Console::application()->run());
+    }
+}
+fwrite(STDERR, "Install dependencies with composer install before running Hanji.\n");
+exit(2);

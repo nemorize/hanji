@@ -7,7 +7,7 @@ use PhpCsFixer\Finder;
 
 $finder = (new Finder())
     ->in([__DIR__ . '/src', __DIR__ . '/tests'])
-    ->append([__FILE__]);
+    ->append([__FILE__, __DIR__ . '/bin/hanji']);
 
 return (new Config())
     ->setRiskyAllowed(true)
