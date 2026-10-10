@@ -1,0 +1,16 @@
+/vendor/
+/_site/
+/.hanji/
+/.phpunit.cache/
+/.phpstan.cache/
+/.php-cs-fixer.cache
+/coverage/
+
+/.idea/
+/.vscode/
+.DS_Store
+.env
+.env.*
+!.env.example
+
+README.md

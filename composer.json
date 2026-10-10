@@ -1,0 +1,50 @@
+{
+    "name": "nemorize/hanji",
+    "description": "A lightweight static site generator for PHP.",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.5"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.0",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^13.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Hanji\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Hanji\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "allow-plugins": false,
+        "preferred-install": "dist",
+        "sort-packages": true
+    },
+    "scripts": {
+        "validate:composer": "@composer validate --strict",
+        "analyse": "phpstan analyse --no-progress",
+        "format": "php-cs-fixer fix",
+        "format:check": "php-cs-fixer fix --dry-run --diff",
+        "test": "phpunit",
+        "check": [
+            "@validate:composer",
+            "@format:check",
+            "@analyse",
+            "@test"
+        ]
+    },
+    "scripts-descriptions": {
+        "validate:composer": "Validate the Composer package and lock file.",
+        "analyse": "Run PHPStan static analysis.",
+        "format": "Apply the PHP coding style.",
+        "format:check": "Check the PHP coding style without changing files.",
+        "test": "Run the PHPUnit test suite.",
+        "check": "Run all development checks."
+    }
+}
