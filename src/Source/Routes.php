@@ -10,9 +10,9 @@ use Hanji\Support\Paths;
 final class Routes
 {
     /** @return array{string, string} Output path and unencoded public path. */
-    public static function resolve(string $route, string $extension, ?string $permalink): array
+    public static function resolve(string $route, string $extension, ?string $permalink, ?string $sourceExtension = null): array
     {
-        $stem = preg_replace('/(?:\.blade)?\.(?:php|md)$/i', '', $route) ?? $route;
+        $stem = self::stem($route, $sourceExtension);
         if ($permalink !== null) {
             if (!str_starts_with($permalink, '/') || str_starts_with($permalink, '//') || preg_match('/[\\\\:%?#\x00-\x1f]/', $permalink)) {
                 throw new BuildException("Invalid permalink: {$permalink}");
@@ -43,5 +43,19 @@ final class Routes
         }
         $path = $suffix === $extension ? $stem : $stem . '.' . $extension;
         return [$path, '/' . $path];
+    }
+
+    public static function asset(string $route, string $extension): string
+    {
+        return self::stem($route, null) . '.' . $extension;
+    }
+
+    private static function stem(string $route, ?string $sourceExtension): string
+    {
+        $sourceExtension ??= pathinfo($route, PATHINFO_EXTENSION);
+        if ($sourceExtension !== '' && str_ends_with($route, '.' . $sourceExtension)) {
+            return substr($route, 0, -strlen($sourceExtension) - 1);
+        }
+        return $route;
     }
 }

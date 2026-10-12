@@ -20,10 +20,9 @@ final class Console
     {
         $application = new Application('Hanji', '0.1.0-dev');
         $build = (new Command('build'))->setDescription('Build the complete static site.')
-            ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Configuration file, returning Hanji\\Config.')
-            ->addOption('mode', null, InputOption::VALUE_REQUIRED, 'prod (compressed CSS) or dev (CSS source maps).', 'prod');
+            ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Configuration file, returning Hanji\\Config.');
         $build->setCode(self::handle(static function (InputInterface $input, OutputInterface $output): void {
-            $result = (new Builder())->build(self::settings($input), self::stringOption($input, 'mode') ?? 'prod');
+            $result = (new Builder())->build(self::settings($input));
             $output->writeln(sprintf('Built %d pages and %d assets in %.2fs → %s', $result->pages, $result->assets, $result->seconds, $result->output));
         }));
         $clean = (new Command('clean'))->setDescription('Remove output and cache owned by this project.')
@@ -45,7 +44,7 @@ final class Console
                 throw new ConfigurationException('directory must be a string.');
             }
             (new Initializer())->initialize(Paths::absolute($directory, getcwd() ?: '.'));
-            $output->writeln('Created hanji.php and a Blade/SCSS starter site. Run hanji build in that directory.');
+            $output->writeln('Created hanji.php and a Blade/CSS starter site. Run hanji build in that directory.');
         }));
         $application->addCommands([$build, $clean, $init]);
         return $application;

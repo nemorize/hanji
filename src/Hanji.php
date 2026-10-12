@@ -6,6 +6,7 @@ use Hanji\BuildException;
 use Hanji\Runtime\ContextStack;
 use Hanji\Support\Maps;
 use Illuminate\Support\HtmlString;
+use Hanji\Output\Extension;
 
 final class Hanji
 {
@@ -42,9 +43,7 @@ final class Hanji
         if ($context->phase !== 'declaration' || $context->extensionDeclared) {
             throw new BuildException("{$context->source}: extension() may be declared once in the leading declaration area.");
         }
-        if (!preg_match('/^[a-z][a-z0-9]*$/D', $extension) || in_array($extension, ['php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar'], true)) {
-            throw new BuildException("{$context->source}: invalid output extension {$extension}.");
-        }
+        Extension::validate($extension);
         $context->extension = $extension;
         $context->extensionDeclared = true;
     }

@@ -10,17 +10,17 @@ use Hanji\Source\Declarations;
 final class Html
 {
     /** @return list<array{start: int, end: int, name: string}> */
-    public static function tags(string $source): array
+    public static function tags(string $source, bool $template = true): array
     {
         $tags = [];
         $length = strlen($source);
         for ($i = 0; $i < $length;) {
-            $skip = self::expressionEnd($source, $i);
+            $skip = self::expressionEnd($source, $i, $template);
             if ($skip !== null) {
                 $i = $skip;
                 continue;
             }
-            if (substr($source, $i, 9) === '@verbatim') {
+            if ($template && substr($source, $i, 9) === '@verbatim') {
                 $end = strpos($source, '@endverbatim', $i + 9);
                 $i = $end === false ? $length : $end + 12;
                 continue;
@@ -35,7 +35,7 @@ final class Html
                 continue;
             }
             $name = strtolower($match[1]);
-            $end = self::tagEnd($source, $i + strlen($match[0]));
+            $end = self::tagEnd($source, $i + strlen($match[0]), $template);
             if ($end === null) {
                 break;
             }
@@ -50,7 +50,7 @@ final class Html
     }
 
     /** @return array<string, array{start: int, length: int, value: string, quote: string}> */
-    public static function attributes(string $tag): array
+    public static function attributes(string $tag, bool $template = true): array
     {
         preg_match('/^<[a-z][a-z0-9:-]*/i', $tag, $match);
         $i = strlen($match[0] ?? '');
@@ -77,7 +77,7 @@ final class Html
             $quote = in_array($tag[$i] ?? '', ['"', "'"], true) ? $tag[$i++] : '';
             $valueStart = $i;
             while ($i < $length) {
-                $skip = self::expressionEnd($tag, $i);
+                $skip = $template ? self::expressionEnd($tag, $i) : null;
                 if ($skip !== null) {
                     $i = $skip;
                 } elseif ($quote !== '' ? $tag[$i] === $quote : str_contains(" \t\r\n>", $tag[$i])) {
@@ -101,20 +101,20 @@ final class Html
             'img', 'source' => ['src', 'srcset'],
             'script', 'audio' => ['src'],
             'video' => ['src', 'poster'],
-            'link' => preg_match('/(?:^|\s)(?:stylesheet|icon)(?:\s|$)/i', self::attributes($tag)['rel']['value'] ?? '') ? ['href'] : [],
+            'link' => preg_match('/(?:^|\s)(?:stylesheet|icon)(?:\s|$)/i', self::attributes($tag, false)['rel']['value'] ?? '') ? ['href'] : [],
             default => [],
         };
     }
 
-    public static function instrument(string $source, string $origin): string
+    public static function trackOrigins(string $source, string $origin): string
     {
         foreach (array_reverse(self::tags($source)) as $tag) {
             $text = substr($source, $tag['start'], $tag['end'] - $tag['start']);
-            if ($tag['name'] !== 'link' && self::references($tag['name'], $text) === []) {
+            if (str_starts_with($tag['name'], 'x-')) {
                 continue;
             }
             $before = '<?php ob_start(); ?>';
-            $call = 'echo \\Hanji\\Runtime\\AssetRuntime::tag((string) ob_get_clean(), ' . var_export($origin, true) . ');';
+            $call = 'echo \\Hanji\\Runtime\\OriginRuntime::tag((string) ob_get_clean(), ' . var_export($origin, true) . ');';
             $newline = str_starts_with(substr($source, $tag['end']), "\r\n") ? "\r\n" : (str_starts_with(substr($source, $tag['end']), "\n") ? "\n" : '');
             $after = '<?php ' . $call . ($newline === '' ? '' : ' echo ' . var_export($newline, true) . ';') . ' ?>';
             $source = substr_replace($source, $before . $text . $after, $tag['start'], $tag['end'] - $tag['start'] + strlen($newline));
@@ -122,11 +122,11 @@ final class Html
         return $source;
     }
 
-    private static function tagEnd(string $source, int $start): ?int
+    private static function tagEnd(string $source, int $start, bool $template): ?int
     {
         $quote = '';
         for ($i = $start, $length = strlen($source); $i < $length; ++$i) {
-            $skip = self::expressionEnd($source, $i);
+            $skip = $template ? self::expressionEnd($source, $i) : null;
             if ($skip !== null) {
                 $i = $skip - 1;
             } elseif ($quote !== '') {
@@ -142,11 +142,11 @@ final class Html
         return null;
     }
 
-    private static function expressionEnd(string $source, int $position): ?int
+    private static function expressionEnd(string $source, int $position, bool $template = true): ?int
     {
         if (substr($source, $position, 4) === '{{--') {
             $end = strpos($source, '--}}', $position + 4);
-            return $end === false ? strlen($source) : $end + 4;
+            return $end === false ? ($template ? strlen($source) : null) : $end + 4;
         }
         $native = substr($source, $position, 5) === '<?php' || substr($source, $position, 3) === '<?=';
         $blade = substr($source, $position, 4) === '@php' && !preg_match('/\w/', $source[$position + 4] ?? '');
@@ -164,7 +164,7 @@ final class Html
                     return $start + $token->pos - 6 + 7;
                 }
             }
-            return strlen($source);
+            return $template ? strlen($source) : null;
         }
         $open = substr($source, $position, 3) === '{!!' ? 3 : (substr($source, $position, 2) === '{{' ? 2 : 0);
         if ($open !== 0) {
@@ -180,7 +180,7 @@ final class Html
                     --$depth;
                 }
             }
-            return strlen($source);
+            return $template ? strlen($source) : null;
         }
         return null;
     }

@@ -21,8 +21,7 @@ final class Initializer
                 return (new Config())
                     ->input('site')
                     ->output('_site')
-                    ->title('Hanji')
-                    ->scss('assets/app.scss', 'assets/app.css');
+                    ->title('Hanji');
                 PHP,
             'site/@layout.blade.php' => <<<'BLADE'
                 <!doctype html>
@@ -31,7 +30,7 @@ final class Initializer
                     <meta charset="utf-8">
                     <meta name="viewport" content="width=device-width, initial-scale=1">
                     <title>{{ Hanji::meta('title', $site['title']) }}</title>
-                    <link rel="stylesheet" href="./assets/app.scss">
+                    <link rel="stylesheet" href="./assets/app.css">
                 </head>
                 <body>{{ Hanji::children() }}</body>
                 </html>
@@ -44,13 +43,10 @@ final class Initializer
                 </main>
                 BLADE,
             'site/_includes/components/@card.blade.php' => '<section>{{ $slot }}</section>',
-            'site/assets/@tokens.scss' => '$ink: #29241f; $paper: #faf7ef;',
-            'site/assets/app.scss' => <<<'SCSS'
-                @import './@tokens.scss';
-
-                body { margin: 0; background: $paper; color: $ink; font-family: system-ui, sans-serif; }
+            'site/assets/app.css' => <<<'CSS'
+                body { margin: 0; background: #faf7ef; color: #29241f; font-family: system-ui, sans-serif; }
                 main { max-width: 60rem; margin: 4rem auto; padding: 0 1rem; }
-                SCSS,
+                CSS,
         ];
         foreach (array_keys($files) as $relative) {
             if (file_exists($directory . '/' . $relative)) {

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Hanji\Runtime;
 
-use Hanji\Asset\AssetResolver;
+use Hanji\Output\Origins;
 use Illuminate\Support\HtmlString;
 
 final class Context
@@ -15,5 +15,5 @@ final class Context
      * @param array<string, mixed> $data
      * @param array<string, string> $params
      */
-    public function __construct(public string $phase, public string $source, public array $data = [], public array $params = [], public string $extension = 'html', public ?HtmlString $children = null, public ?AssetResolver $assets = null) {}
+    public function __construct(public string $phase, public string $source, public array $data = [], public array $params = [], public string $extension = 'html', public ?HtmlString $children = null, public ?Origins $origins = null) {}
 }

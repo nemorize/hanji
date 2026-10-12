@@ -36,9 +36,9 @@ final class Metadata
         if (array_key_exists('permalink', $data) && !is_string($data['permalink'])) {
             throw new BuildException('permalink must be a string.');
         }
-        if (isset($data['date'])) {
+        if (isset($data['date']) && !$data['date'] instanceof \DateTimeImmutable) {
             if (!is_string($data['date'])) {
-                throw new BuildException('date must be a date-only or RFC 3339 string.');
+                throw new BuildException('date must be a date-only or RFC 3339 string, or DateTimeImmutable.');
             }
             $value = $data['date'];
             $format = preg_match('/^\d{4}-\d{2}-\d{2}$/D', $value) ? '!Y-m-d' : (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D', $value) ? (str_contains($value, '.') ? 'Y-m-d\TH:i:s.uP' : 'Y-m-d\TH:i:sP') : null);

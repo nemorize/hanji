@@ -4,28 +4,19 @@ declare(strict_types=1);
 
 namespace Hanji\Template;
 
-use Hanji\Asset\AssetResolver;
-use Hanji\Asset\Html;
-use Hanji\BuildException;
-use Hanji\Page;
-use Hanji\Runtime\Context;
-use Hanji\Runtime\ContextStack;
 use Hanji\Settings;
-use Hanji\Source\PreparedPage;
 use Hanji\Support\Scripts;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\View\Factory as FactoryContract;
 use Illuminate\Events\Dispatcher;
 use Illuminate\Filesystem\Filesystem;
-use Illuminate\Support\HtmlString;
 use Illuminate\View\Component;
 use Illuminate\View\Engines\EngineResolver;
-use Illuminate\View\Factory;
 use Symfony\Component\Filesystem\Filesystem as Files;
 
-final class Renderer
+final class BladeEngine
 {
-    private Factory $views;
+    private ViewFactory $views;
     private Container $previousContainer;
     private BladeCompiler $compiler;
     private string $viewRoot;
@@ -50,7 +41,7 @@ final class Renderer
         $resolver = new EngineResolver();
         $resolver->register('blade', fn(): CompilerEngine => new CompilerEngine($this->compiler, $filesystem));
         $includeRelative = substr($settings->includes, strlen($settings->input) + 1);
-        $this->views = new Factory($resolver, new ViewFinder($filesystem, [$this->viewRoot . '/' . $includeRelative, $this->viewRoot], ['blade.php']), new Dispatcher($container));
+        $this->views = new ViewFactory($resolver, new ViewFinder($filesystem, [$this->viewRoot . '/' . $includeRelative, $this->viewRoot], ['blade.php']), new Dispatcher($container));
         $this->views->setContainer($container);
         $container->instance('view', $this->views);
         $container->instance(FactoryContract::class, $this->views);
@@ -83,60 +74,18 @@ final class Renderer
         Container::setInstance($this->previousContainer);
     }
 
-    /** @param array<string, list<Page>> $collections */
-    public function render(PreparedPage $prepared, array $collections, AssetResolver $assets): string
-    {
-        $page = $prepared->page;
-        $source = $prepared->instance->source;
-        $scope = ['site' => $this->settings->site, 'page' => $page, 'collections' => $collections, 'hanji' => new Url($this->settings)];
-        $context = new Context('body', $source, $page->data, $page->params, $page->extension, assets: $assets);
-        try {
-            $result = ContextStack::run($context, fn(): string => match ($prepared->instance->kind) {
-                'blade' => $this->blade($source, $prepared->body, $scope),
-                'php' => $this->php($source, $prepared->body, $scope, $page->extension === 'html'),
-                'markdown' => Markdown::render($prepared->body, $source, $this->settings->markdownHtml),
-                default => throw new BuildException('Unknown renderer.'),
-            });
-            if ($page->extension === 'html' && ($page->data['layout'] ?? true) !== false) {
-                $directory = dirname($source);
-                while (true) {
-                    $layout = $directory . '/@layout.blade.php';
-                    if (is_file($layout)) {
-                        $layoutContext = new Context('layout', $layout, $page->data, $page->params, 'html', new HtmlString($result), $assets);
-                        $result = ContextStack::run($layoutContext, fn(): string => $this->blade($layout, (string) file_get_contents($layout), $scope));
-                    }
-                    if ($directory === $this->settings->input) {
-                        break;
-                    }
-                    $directory = dirname($directory);
-                }
-            }
-            return $result;
-        } catch (\Throwable $error) {
-            throw new BuildException("{$source} [{$page->url}]: {$error->getMessage()}", 0, $error);
-        }
-    }
-
     /** @param array<string, mixed> $scope */
-    private function blade(string $source, string $body, array $scope): string
+    public function render(string $source, string $body, array $scope): string
     {
         $path = $this->prepare($source, $body);
         $this->views->flushState();
-        $this->views->share($scope);
+        $this->views->scope($scope);
         try {
             return $this->views->file($path, $scope)->render();
         } finally {
             $this->views->flushState();
+            $this->views->scope([]);
         }
-    }
-
-    /** @param array<string, mixed> $scope */
-    private function php(string $source, string $body, array $scope, bool $html): string
-    {
-        $path = $this->settings->cache . '/scripts/' . hash('sha256', $source . $body) . '.php';
-        $this->files->dumpFile($path, Scripts::original($html ? Html::instrument($body, $source) : $body, $source));
-        $result = Scripts::require($path, $scope)[1];
-        return $html ? \Hanji\Runtime\AssetRuntime::html($result, $source) : $result;
     }
 
     private function prepare(string $source, string $body): string

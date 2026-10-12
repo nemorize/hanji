@@ -36,6 +36,6 @@ final class BladeCompiler extends \Illuminate\View\Compilers\BladeCompiler
     {
         $origin = $this->origins[$this->getPath()] ?? $this->getPath();
         $this->compiledOrigins[$this->getCompiledPath($this->getPath())] = $origin;
-        return Scripts::original(parent::compileString(Html::instrument($value, $origin)), $origin);
+        return Scripts::original(parent::compileString(Html::trackOrigins($value, $origin)), $origin);
     }
 }

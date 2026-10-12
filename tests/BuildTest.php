@@ -38,7 +38,7 @@ final class BuildTest extends TestCase
 
     public function testCompleteSiteBuild(): void
     {
-        $this->write('site/@layout.blade.php', '<html><link rel="stylesheet" href="./assets/scss/app.scss">@include("partials.header"){{ Hanji::children() }}</html>');
+        $this->write('site/@layout.blade.php', '<html><link rel="stylesheet" href="./assets/css/app.css">@include("partials.header"){{ Hanji::children() }}</html>');
         $this->write('site/_includes/partials/@header.blade.php', '<header><img src="../../assets/images/logo.svg"></header>');
         $this->write('site/index.blade.php', '@meta(["title" => "Home"])<h1>{{ Hanji::meta("title") }}</h1>');
         $this->write('site/about.php', '<?php Hanji::meta(["title" => "About"]); ?><h1><?= Hanji::meta("title") ?></h1>');
@@ -54,8 +54,7 @@ final class BuildTest extends TestCase
         $this->write('site/products/[foo]/index.blade.php', '<h1>{{ Hanji::params("foo") }}</h1><img src="./cover.svg">');
         $this->write('site/products/[foo]/releases/[version]/@params.php', '<?php return Hanji::params("foo") === "hanji" ? ["0.1", "0.2"] : ["1.0"];');
         $this->write('site/products/[foo]/releases/[version]/index.blade.php', '<p>{{ Hanji::params("version") }}</p><img src="../../cover.svg">');
-        $this->write('site/assets/scss/@tokens.scss', '$ink: #123456;');
-        $this->write('site/assets/scss/app.scss', '@import "./@tokens.scss"; body { color: $ink; }');
+        $this->write('site/assets/css/app.css', 'body { color: #123456; }');
         foreach (['assets/images/logo.svg', 'posts/cover.svg', 'products/[foo]/cover.svg'] as $path) {
             $this->write('site/' . $path, '<svg/>');
         }
@@ -63,7 +62,7 @@ final class BuildTest extends TestCase
         $this->write('site/.visible.txt', 'Hidden asset');
         $this->write('site/@notes.md', 'Private notes');
         $this->write('site/assets/images/@private.svg', '<svg/>');
-        $result = $this->build((new Config())->scss('assets/scss/app.scss', 'assets/css/app.css')->copy('assets/images', 'static/images'));
+        $result = $this->build((new Config())->copy('assets/images', 'static/images'));
         self::assertSame(11, $result->pages);
         self::assertSame(6, $result->assets);
         self::assertCount(17, $this->outputs());
@@ -330,24 +329,31 @@ final class BuildTest extends TestCase
         self::assertSame('<main><p>Two</p></main>', $this->readOutput('two/index.html'));
     }
 
-    public function testScssImportsModesAndRebuildDeletesStaleFiles(): void
+    public function testStylesAreCopiedAndRebuildDeletesStaleFiles(): void
     {
+        $scss = '@use "sass:color"; @forward "other"; .paper { color: $undefined; }';
+        $css = ".paper {\n  color: #123456;\n}\n";
         $this->write('site/styles/@tokens.scss', '$color: #123456;');
-        $this->write('site/styles/app.scss', '@import "./@tokens.scss"; .paper { color: $color; &:hover { color: white; } }');
+        $this->write('site/styles/app.scss', $scss);
+        $this->write('site/styles/app.css', $css);
+        $this->write('site/index.blade.php', '<link rel="stylesheet" href="./styles/app.scss"><link rel="stylesheet" href="./styles/app.css">');
         $this->write('site/old.php', '<?php echo "old";');
-        $config = (new Config())->scss('styles/app.scss', 'css/main.css');
-        $this->build($config, 'dev');
-        self::assertFileExists($this->root . '/_site/css/main.css.map');
-        self::assertStringContainsString('.paper:hover', $this->readOutput('css/main.css'));
-        self::assertStringContainsString('main.css.map', $this->readOutput('css/main.css'));
-        self::assertStringNotContainsString($this->root, $this->readOutput('css/main.css.map'));
+        $this->build();
+        self::assertSame($scss, $this->readOutput('styles/app.scss'));
+        self::assertSame($css, $this->readOutput('styles/app.css'));
+        self::assertSame('<link rel="stylesheet" href="/styles/app.scss"><link rel="stylesheet" href="/styles/app.css">', $this->readOutput('index.html'));
+        self::assertFileDoesNotExist($this->root . '/_site/styles/@tokens.scss');
+        self::assertFileDoesNotExist($this->root . '/_site/styles/app.css.map');
         $this->files->remove($this->root . '/site/old.php');
+        $this->files->remove($this->root . '/site/styles/app.scss');
+        $this->write('site/index.blade.php', '<link rel="stylesheet" href="./styles/app.css">');
         $this->write('site/new.php', '<?php echo "new";');
-        $this->build($config);
+        $this->build((new Config())->copy('styles', 'assets'));
         self::assertFileDoesNotExist($this->root . '/_site/old/index.html');
-        self::assertFileDoesNotExist($this->root . '/_site/css/main.css.map');
+        self::assertDirectoryDoesNotExist($this->root . '/_site/styles');
+        self::assertSame($css, $this->readOutput('assets/app.css'));
+        self::assertSame('<link rel="stylesheet" href="/assets/app.css">', $this->readOutput('index.html'));
         self::assertSame('new', $this->readOutput('new/index.html'));
-        self::assertStringNotContainsString("\n  ", $this->readOutput('css/main.css'));
     }
 
     /** @return iterable<string, array{array<string, string>, string}> */
@@ -384,9 +390,6 @@ final class BuildTest extends TestCase
         yield 'reused parameter name' => [['[name]/@params.php' => '<?php return ["one"];', '[name]/[name]/@params.php' => '<?php return ["two"];'], 'duplicate dynamic parameter'];
         yield 'ambiguous dynamic reference' => [['index.blade.php' => '<script src="./[name]/data.php"></script>', '[name]/@params.php' => '<?php return ["one","two"];', '[name]/data.php' => '<?php Hanji::extension("json"); echo "{}";'], 'Ambiguous dynamic asset'];
         yield 'duplicate data' => [['@data.php' => '<?php return [];', '@data.json' => '{}'], 'Duplicate data'];
-        yield 'bad scss' => [['app.scss' => 'a { color: $undefined; }'], 'Undefined variable'];
-        yield 'modules unsupported' => [['app.scss' => '@use "sass:color";'], '@use'];
-        yield 'forward unsupported' => [['app.scss' => '@forward "other";'], '@forward'];
     }
 
     /** @param array<string, string> $sources */
@@ -478,11 +481,15 @@ final class BuildTest extends TestCase
     {
         (new Initializer())->initialize($this->root);
         self::assertFileDoesNotExist($this->root . '/README.md');
+        self::assertFileExists($this->root . '/site/assets/app.css');
+        self::assertFileDoesNotExist($this->root . '/site/assets/app.scss');
         $application = Console::application();
         $application->setAutoExit(false);
         $tester = new ApplicationTester($application);
         self::assertSame(0, $tester->run(['command' => 'build', '--config' => $this->root . '/hanji.php']));
         self::assertStringContainsString('Built 1 pages and 1 assets', $tester->getDisplay());
+        self::assertStringContainsString('href="/assets/app.css"', $this->readOutput('index.html'));
+        self::assertSame(file_get_contents($this->root . '/site/assets/app.css'), $this->readOutput('assets/app.css'));
         self::assertSame(2, $tester->run(['command' => 'build', '--config' => $this->root . '/missing.php']));
         $this->write('site/index.blade.php', '<img src="./missing.svg">');
         self::assertSame(1, $tester->run(['command' => 'build', '--config' => $this->root . '/hanji.php']));
@@ -517,8 +524,8 @@ final class BuildTest extends TestCase
         return $paths;
     }
 
-    private function build(?Config $config = null, string $mode = 'prod'): \Hanji\BuildResult
+    private function build(?Config $config = null): \Hanji\BuildResult
     {
-        return (new Builder())->build(($config ?? new Config())->resolve($this->root), $mode);
+        return (new Builder())->build(($config ?? new Config())->resolve($this->root));
     }
 }

@@ -11,10 +11,12 @@ use Hanji\Settings;
 use Hanji\Support\Maps;
 use Hanji\Support\Paths;
 use Hanji\Support\Scripts;
+use Hanji\Plugin\Registry;
+use Hanji\Plugin\AssetBuildPlugin;
 
 final class Expander
 {
-    public function __construct(private readonly Settings $settings, private readonly DataResolver $data) {}
+    public function __construct(private readonly Settings $settings, private readonly DataResolver $data, private readonly Registry $plugins) {}
 
     /**
      * @param array<string, mixed> $global
@@ -102,8 +104,8 @@ final class Expander
             $routePath = ($route === '' ? '' : $route . '/') . $entry;
             if (is_dir($source)) {
                 array_push($result, ...$this->walk($source, $routePath, $params, $data));
-            } elseif (in_array($kind = Scanner::kind($source), ['blade', 'php', 'markdown'], true)) {
-                $result[] = new Instance(substr($source, strlen($this->settings->input) + 1), $routePath, $source, $kind, $data, $params);
+            } elseif (($plugin = $this->plugins->builder($source)) !== null && !$plugin instanceof AssetBuildPlugin) {
+                $result[] = new Instance(substr($source, strlen($this->settings->input) + 1), $routePath, $source, $plugin, $data, $params);
             }
         }
         return $result;

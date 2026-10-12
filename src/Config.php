@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace Hanji;
 
 use Hanji\Support\Paths;
+use Hanji\Plugin\Plugin;
+use Hanji\Plugin\Build\BladeBuildPlugin;
+use Hanji\Plugin\Build\PhpBuildPlugin;
+use Hanji\Plugin\Build\MarkdownBuildPlugin;
+use Hanji\Plugin\TransformPlugin;
+use Hanji\Plugin\Transform\RelativePathTransformPlugin;
 
 final class Config
 {
@@ -19,11 +25,31 @@ final class Config
     private string $siteTimezone = 'UTC';
     private bool $allowMarkdownHtml = false;
     /** @var list<array{string, string}> */
-    private array $scssMappings = [];
-    /** @var list<string> */
-    private array $scssPaths = [];
-    /** @var list<array{string, string}> */
     private array $copyMappings = [];
+    /** @var list<Plugin> */
+    private array $registeredPlugins;
+
+    public function __construct()
+    {
+        $this->registeredPlugins = [new BladeBuildPlugin(), new PhpBuildPlugin(), new MarkdownBuildPlugin(), new RelativePathTransformPlugin()];
+    }
+
+    public function plugin(Plugin $plugin): self
+    {
+        $this->registeredPlugins = array_values(array_filter($this->registeredPlugins, static fn(Plugin $registered): bool => $registered::class !== $plugin::class));
+        if ($plugin instanceof TransformPlugin) {
+            $this->registeredPlugins[] = $plugin;
+        } else {
+            array_unshift($this->registeredPlugins, $plugin);
+        }
+        return $this;
+    }
+
+    public function plugins(Plugin ...$plugins): self
+    {
+        $this->registeredPlugins = array_values($plugins);
+        return $this;
+    }
 
     public function input(string $path): self
     {
@@ -68,16 +94,6 @@ final class Config
     public function timezone(string $timezone): self
     {
         $this->siteTimezone = $timezone;
-        return $this;
-    }
-    public function scss(string $input, string $output): self
-    {
-        $this->scssMappings[] = [$input, $output];
-        return $this;
-    }
-    public function scssLoadPath(string $path): self
-    {
-        $this->scssPaths[] = $path;
         return $this;
     }
     public function copy(string $source, string $destination): self
@@ -138,15 +154,8 @@ final class Config
             }
             $basePath = '/' . trim($this->siteBasePath, '/') . '/';
             $basePath = $basePath === '//' ? '/' : $basePath;
-            $scss = $this->mappings($this->scssMappings, $input);
             $copy = $this->mappings($this->copyMappings, $input);
-            $loadPaths = array_map(static fn(string $path): string => Paths::absolute($path, $input), $this->scssPaths);
-            foreach ($loadPaths as $path) {
-                if (!Paths::within($path, $input) || !is_dir($path)) {
-                    throw new ConfigurationException("SCSS load path is not an input directory: {$path}");
-                }
-            }
-            return new Settings($root, $input, $output, $cache, $includes, $data, ['title' => $this->siteTitle, 'baseUrl' => $this->siteUrl, 'basePath' => $basePath, 'timezone' => $this->siteTimezone], $scss, $copy, $loadPaths, $this->allowMarkdownHtml);
+            return new Settings($root, $input, $output, $cache, $includes, $data, ['title' => $this->siteTitle, 'baseUrl' => $this->siteUrl, 'basePath' => $basePath, 'timezone' => $this->siteTimezone], $copy, $this->registeredPlugins, $this->allowMarkdownHtml);
         } catch (ConfigurationException $error) {
             throw $error;
         } catch (\Throwable $error) {

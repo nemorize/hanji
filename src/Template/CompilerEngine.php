@@ -20,7 +20,7 @@ final class CompilerEngine extends \Illuminate\View\Engines\CompilerEngine
     {
         $parent = ContextStack::current();
         $origin = $this->compiler instanceof BladeCompiler ? $this->compiler->origin($path) : $path;
-        $context = new Context($parent->phase, $origin, $parent->data, $parent->params, $parent->extension, $parent->children, $parent->assets);
+        $context = new Context($parent->phase, $origin, $parent->data, $parent->params, $parent->extension, $parent->children, $parent->origins);
         try {
             return ContextStack::run($context, static fn(): string => Scripts::require($path, $data)[1]);
         } catch (\Throwable $error) {

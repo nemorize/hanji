@@ -2,29 +2,36 @@
 
 declare(strict_types=1);
 
-namespace Hanji\Runtime;
+namespace Hanji\Plugin\Transform;
 
 use Hanji\Asset\Html;
+use Hanji\Plugin\BuildContext;
+use Hanji\Plugin\TransformPlugin;
 
-final class AssetRuntime
+final class RelativePathTransformPlugin implements TransformPlugin
 {
-    public static function html(string $html, string $source): string
+    public function supports(string $path, BuildContext $context): bool
     {
-        foreach (array_reverse(Html::tags($html)) as $tag) {
-            $text = substr($html, $tag['start'], $tag['end'] - $tag['start']);
-            $html = substr_replace($html, self::tag($text, $source), $tag['start'], $tag['end'] - $tag['start']);
-        }
-        return $html;
+        return $context->extension === 'html';
     }
 
-    public static function tag(string $tag, string $source): string
+    public function transform(string $path, BuildContext $context, string $content): string
     {
-        $context = ContextStack::current();
-        if ($context->extension !== 'html' || $context->assets === null) {
-            return $tag;
+        if ($context->assets === null) {
+            return $content;
         }
+        foreach (array_reverse(Html::tags($content, false)) as $tag) {
+            $source = $context->session->origins->source($content, $tag['start'], $path);
+            $text = substr($content, $tag['start'], $tag['end'] - $tag['start']);
+            $content = substr_replace($content, $this->tag($text, $source, $context), $tag['start'], $tag['end'] - $tag['start']);
+        }
+        return $content;
+    }
+
+    private function tag(string $tag, string $source, BuildContext $context): string
+    {
         preg_match('/^<([a-z][a-z0-9:-]*)/i', $tag, $match);
-        $attributes = Html::attributes($tag);
+        $attributes = Html::attributes($tag, false);
         $references = Html::references(strtolower($match[1] ?? ''), $tag);
         uasort($attributes, static fn(array $a, array $b): int => $b['start'] <=> $a['start']);
         foreach ($attributes as $name => $attribute) {
@@ -32,8 +39,8 @@ final class AssetRuntime
                 continue;
             }
             $value = html_entity_decode($attribute['value'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
-            $resolve = static fn(string $url): string => $context->assets->resolve($url, $source, $context->params);
-            $rewritten = $name === 'srcset' ? self::srcset($value, $resolve) : $resolve($value);
+            $resolve = static fn(string $url): string => $context->assets?->resolve($url, $source, $context->params) ?? $url;
+            $rewritten = $name === 'srcset' ? $this->srcset($value, $resolve) : $resolve($value);
             if ($rewritten === $value) {
                 continue;
             }
@@ -47,7 +54,7 @@ final class AssetRuntime
     }
 
     /** @param callable(string): string $resolve */
-    private static function srcset(string $value, callable $resolve): string
+    private function srcset(string $value, callable $resolve): string
     {
         $result = '';
         $length = strlen($value);

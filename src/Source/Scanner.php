@@ -34,17 +34,8 @@ final class Scanner
         return $files;
     }
 
-    public static function kind(string $path): string
+    public static function special(string $path): bool
     {
-        if (str_starts_with(basename($path), '@')) {
-            return 'special';
-        }
-        return match (true) {
-            str_ends_with($path, '.blade.php') => 'blade',
-            str_ends_with($path, '.php') => 'php',
-            str_ends_with($path, '.md') => 'markdown',
-            str_ends_with($path, '.scss') => 'scss',
-            default => 'static',
-        };
+        return str_starts_with(basename($path), '@');
     }
 }
