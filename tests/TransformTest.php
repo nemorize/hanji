@@ -37,7 +37,7 @@ final class TransformTest extends TestCase
 
     public function testRelativePathsCanBeDisabledForEveryHtmlBuildFormatAndCopiedHtml(): void
     {
-        $this->write('site/@layout.blade.php', '<main><img src="./missing-layout.svg">{{ Hanji::children() }}</main>');
+        $this->write('site/@layout.blade.php', '<main><img src="./missing-layout.svg"><meta property="og:image" content="./missing-meta.svg">{{ Hanji::children() }}</main>');
         $this->write('site/index.blade.php', '<img src="./missing-blade.svg">');
         $this->write('site/native.php', '<?php echo \'<img src="./missing-php.svg">\';');
         $this->write('site/post.md', '![Image](./missing-markdown.svg)');
@@ -48,6 +48,7 @@ final class TransformTest extends TestCase
             $html = $this->read($path);
             self::assertStringContainsString('src="./missing-' . $format . '.svg"', $html);
             self::assertStringContainsString('src="./missing-layout.svg"', $html);
+            self::assertStringContainsString('content="./missing-meta.svg"', $html);
             self::assertStringNotContainsString('hanji-origin:', $html);
         }
         self::assertSame('<img src="./missing-static.svg">', $this->read('static.html'));
@@ -175,6 +176,90 @@ final class TransformTest extends TestCase
         self::assertSame(2, substr_count($html, 'src="/public/cover.svg"'));
         self::assertStringContainsString('alt="{{"', $html);
         self::assertStringContainsString('alt="{{ example }}"', $html);
+    }
+
+    public function testUrlMetadataContentUsesAssetMappingsAndCompiledPageRoutes(): void
+    {
+        $keys = [
+            'og:image', 'og:image:url', 'og:image:secure_url',
+            'og:video', 'og:video:url', 'og:video:secure_url',
+            'og:audio', 'og:audio:url', 'og:audio:secure_url',
+            'twitter:image', 'twitter:image:src', 'twitter:player', 'twitter:player:stream',
+        ];
+        $html = '';
+        foreach (['name', 'property'] as $attribute) {
+            foreach ($keys as $key) {
+                $html .= '<meta ' . $attribute . '="' . $key . '" content="./media/cover.svg?size=2&amp;h=3#preview">';
+            }
+            foreach (['og:url', 'twitter:url'] as $key) {
+                $html .= '<meta ' . $attribute . '="' . $key . '" content="./detail.blade.php">';
+            }
+        }
+        foreach (['url', 'image', 'logo', 'contentUrl', 'embedUrl', 'thumbnailUrl'] as $key) {
+            $html .= '<meta itemprop="' . $key . '" content="./media/cover.svg">';
+        }
+        $html .= '<META PROPERTY=" OG&#58;IMAGE " CONTENT=./media/cover.svg>';
+        $html .= '<meta itemprop="unknown image" content="./media/cover.svg">';
+        $this->write('site/static.html', $html);
+        $this->write('site/media/cover.svg', '<svg/>');
+        $this->write('site/detail.blade.php', '@meta(["permalink" => "/guide/"])Guide');
+        $this->build((new Config())->copy('media', 'public')->basePath('/docs/'));
+        $output = $this->read('static.html');
+        self::assertSame(count($keys) * 2, substr_count($output, 'content="/docs/public/cover.svg?size=2&amp;h=3#preview"'));
+        self::assertSame(4, substr_count($output, 'content="/docs/guide/"'));
+        self::assertSame(7, substr_count($output, 'content="/docs/public/cover.svg"'));
+        self::assertStringContainsString('<META PROPERTY=" OG&#58;IMAGE " CONTENT="/docs/public/cover.svg">', $output);
+    }
+
+    public function testMetaReferencesKeepLayoutIncludeComponentAndDynamicPageOrigins(): void
+    {
+        $this->write('site/@layout.blade.php', '<meta property="og:image" content="./root.svg">@include("social")<x-social>{{ Hanji::children() }}</x-social>');
+        $this->write('site/_includes/@social.blade.php', '<meta name="{{ \'twitter:image\' }}" content="./local.svg">');
+        $this->write('site/_includes/components/@social.blade.php', '<meta itemprop="image" content="./card.svg">{{ $slot }}');
+        $this->write('site/root.svg', '<svg/>');
+        $this->write('site/_includes/local.svg', '<svg/>');
+        $this->write('site/_includes/components/card.svg', '<svg/>');
+        $this->write('site/products/[name]/@params.php', '<?php return ["one", "two"];');
+        $this->write('site/products/[name]/cover.svg', '<svg/>');
+        $this->write('site/products/[name]/index.blade.php', '<meta property="og:image" content="./cover.svg?v=1"><meta property="og:url" content="./index.blade.php">');
+        $this->build((new Config())->basePath('/docs/'));
+        foreach (['one', 'two'] as $name) {
+            $html = $this->read('products/' . $name . '/index.html');
+            self::assertStringContainsString('content="/docs/root.svg"', $html);
+            self::assertStringContainsString('content="/docs/_includes/local.svg"', $html);
+            self::assertStringContainsString('content="/docs/_includes/components/card.svg"', $html);
+            self::assertStringContainsString('content="/docs/products/%5Bname%5D/cover.svg?v=1"', $html);
+            self::assertStringContainsString('content="/docs/products/' . $name . '/"', $html);
+            self::assertStringNotContainsString('hanji-origin:', $html);
+        }
+        self::assertFileDoesNotExist($this->root . '/_site/products/one/cover.svg');
+    }
+
+    public function testNonUrlMetadataAndExistingAbsoluteUrlsRemainUnchanged(): void
+    {
+        $html = <<<'HTML'
+            <meta name="description" content="./this is a description">
+            <meta property="og:title" content="./not-a-file">
+            <meta property="og:description" content="./not-a-file">
+            <meta property="og:image:alt" content="./not-a-file">
+            <meta property="og:image:width" content="1200">
+            <meta property="og:image:height" content="630">
+            <meta name="twitter:image:alt" content="./not-a-file">
+            <meta name="twitter:player:width" content="640">
+            <meta name="twitter:card" content="summary_large_image">
+            <meta name="twitter:site" content="@hanji">
+            <meta itemprop="name" content="./not-a-file">
+            <meta property="og:image:unknown" content="./not-a-file">
+            <meta http-equiv="refresh" content="0;url=./not-a-file">
+            <meta property="og:image" content="https://example.com/cover.svg?x=1&amp;y=2">
+            <meta name="twitter:image" content="//cdn.example.com/cover.svg">
+            <meta itemprop="image" content="data:image/svg+xml;base64,AA==">
+            <meta property="og:url" content="/existing/">
+            <meta property="og:image" content="">
+            HTML;
+        $this->write('site/static.html', $html);
+        $this->build();
+        self::assertSame($html, $this->read('static.html'));
     }
 
     public function testFailingTransformsPreserveOutputAndRestoreRuntimeState(): void

@@ -373,6 +373,8 @@ final class BuildTest extends TestCase
         yield 'case collision' => [['a.php' => '<?php echo "a";', 'A.blade.php' => 'b'], 'collision'];
         yield 'file directory collision' => [['a' => 'a', 'a.php' => '<?php echo "b";'], 'collision'];
         yield 'missing asset' => [['index.blade.php' => '<img src="./missing.svg">'], 'Missing asset'];
+        yield 'missing meta asset' => [['index.blade.php' => '<meta property="og:image" content="./missing.svg">'], 'Missing asset'];
+        yield 'private meta asset' => [['index.blade.php' => '<meta name="twitter:image" content="./@private.svg">', '@private.svg' => 'secret'], 'Special files'];
         yield 'encoded separator' => [['index.blade.php' => '<img src=".%2fmissing.svg">'], 'Invalid relative asset'];
         yield 'private asset' => [['index.blade.php' => '<img src="./@private.svg">', '@private.svg' => 'x'], 'Special files'];
         yield 'invalid date' => [['index.blade.php' => '@meta(["date" => "2026-02-30"])Bad'], 'Invalid date'];

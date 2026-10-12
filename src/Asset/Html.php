@@ -9,6 +9,32 @@ use Hanji\Source\Declarations;
 /** A small lexical scanner: only tag/attribute bytes change, never text or PHP strings. */
 final class Html
 {
+    private const META_URL_KEYS = [
+        'og:url',
+        'og:image',
+        'og:image:url',
+        'og:image:secure_url',
+        'og:video',
+        'og:video:url',
+        'og:video:secure_url',
+        'og:audio',
+        'og:audio:url',
+        'og:audio:secure_url',
+        'twitter:url',
+        'twitter:image',
+        'twitter:image:src',
+        'twitter:player',
+        'twitter:player:stream',
+    ];
+    private const ITEMPROP_URL_KEYS = [
+        'url',
+        'image',
+        'logo',
+        'contenturl',
+        'embedurl',
+        'thumbnailurl',
+    ];
+
     /** @return list<array{start: int, end: int, name: string}> */
     public static function tags(string $source, bool $template = true): array
     {
@@ -102,8 +128,26 @@ final class Html
             'script', 'audio' => ['src'],
             'video' => ['src', 'poster'],
             'link' => preg_match('/(?:^|\s)(?:stylesheet|icon)(?:\s|$)/i', self::attributes($tag, false)['rel']['value'] ?? '') ? ['href'] : [],
+            'meta' => self::metaReferences($tag),
             default => [],
         };
+    }
+
+    /** @return list<string> */
+    private static function metaReferences(string $tag): array
+    {
+        $attributes = self::attributes($tag, false);
+        foreach (['property', 'name', 'itemprop'] as $attribute) {
+            $value = html_entity_decode($attributes[$attribute]['value'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            $tokens = preg_split('/\s+/', strtolower(trim($value))) ?: [];
+            $keys = $attribute === 'itemprop' ? self::ITEMPROP_URL_KEYS : self::META_URL_KEYS;
+            foreach ($tokens as $token) {
+                if (in_array($token, $keys, true)) {
+                    return ['content'];
+                }
+            }
+        }
+        return [];
     }
 
     public static function trackOrigins(string $source, string $origin): string
