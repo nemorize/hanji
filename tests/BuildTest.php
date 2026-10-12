@@ -490,7 +490,7 @@ final class BuildTest extends TestCase
         $application->setAutoExit(false);
         $tester = new ApplicationTester($application);
         self::assertSame(0, $tester->run(['command' => 'build', '--config' => $this->root . '/hanji.php']));
-        self::assertStringContainsString('Built 1 pages and 1 assets', $tester->getDisplay());
+        self::assertStringContainsString('Built 1 page and 1 asset', $tester->getDisplay());
         self::assertStringContainsString('href="/assets/app.css"', $this->readOutput('index.html'));
         self::assertSame(file_get_contents($this->root . '/site/assets/app.css'), $this->readOutput('assets/app.css'));
         self::assertSame(2, $tester->run(['command' => 'build', '--config' => $this->root . '/missing.php']));

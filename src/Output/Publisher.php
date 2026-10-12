@@ -76,15 +76,23 @@ final class Publisher
         }
     }
 
-    public function clean(): void
+    /** @return list<string> Removed output and cache directories. */
+    public function clean(): array
     {
         $this->assertOwned();
+        $removed = [];
         if (is_file($this->state)) {
+            $exists = is_dir($this->settings->output);
             $this->files->remove([$this->settings->output, $this->state]);
+            if ($exists) {
+                $removed[] = $this->settings->output;
+            }
         }
         if ($this->cacheOwned()) {
             $this->files->remove($this->settings->cache);
+            $removed[] = $this->settings->cache;
         }
+        return $removed;
     }
 
     public function close(): void

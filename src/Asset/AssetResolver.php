@@ -38,20 +38,20 @@ final readonly class AssetResolver
             if (!$required) {
                 return $reference;
             }
-            throw new BuildException("Invalid relative asset URL {$reference} in {$source}");
+            throw new BuildException("Invalid relative asset URL {$reference} in {$source}", source: $source);
         }
         $absolute = Paths::absolute(rawurldecode($path), dirname($source));
         if (!Paths::within($absolute, $this->settings->input)) {
             if (!$required) {
                 return $reference;
             }
-            throw new BuildException("Asset escapes the input directory: {$reference} in {$source}");
+            throw new BuildException("Asset escapes the input directory: {$reference} in {$source}", source: $source);
         }
         if (str_starts_with(basename($absolute), '@')) {
             if (!$required) {
                 return $reference;
             }
-            throw new BuildException("Special files cannot be public assets: {$reference} in {$source}");
+            throw new BuildException("Special files cannot be public assets: {$reference} in {$source}", source: $source);
         }
         $targets = $this->manifest[$absolute] ?? [];
         if (!$required && $targets === []) {
@@ -66,7 +66,7 @@ final readonly class AssetResolver
             return true;
         }));
         if (count($targets) !== 1) {
-            throw new BuildException((count($targets) === 0 ? 'Missing' : 'Ambiguous dynamic') . " asset {$reference} in {$source}");
+            throw new BuildException((count($targets) === 0 ? 'Missing' : 'Ambiguous dynamic') . " asset {$reference} in {$source}", source: $source);
         }
         return $targets[0]['url'] . $suffix;
     }

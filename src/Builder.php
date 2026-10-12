@@ -31,15 +31,19 @@ use Symfony\Component\Filesystem\Filesystem;
 
 final class Builder
 {
-    public function build(Settings $settings): BuildResult
+    /** @param (callable(BuildProgress): void)|null $progress */
+    public function build(Settings $settings, ?callable $progress = null): BuildResult
     {
+        $progress ??= static function (BuildProgress $event): void {};
         $started = microtime(true);
         $publisher = new Publisher($settings);
         $session = null;
         try {
             $stage = $publisher->begin();
             $files = new Filesystem();
+            $progress(new BuildProgress('scanning'));
             $sources = (new Scanner())->scan($settings->input);
+            $progress(new BuildProgress('preparing'));
             $data = new DataResolver();
             $plugins = new Plugins($settings->plugins);
             $global = $data->global($settings->dataDirectory, $sources);
@@ -56,6 +60,7 @@ final class Builder
                     $session->bodies[$instance->source] = $item->preparation->body;
                 }
                 $manifest[$instance->source][] = ['url' => $item->page->url, 'params' => $item->page->params];
+                $progress(new BuildProgress('preparing', count($prepared), count($instances), $instance->source));
             }
             $assets = $this->assets($settings, $sources, $plugins);
             $compiled = [];
@@ -71,11 +76,16 @@ final class Builder
                 $registry->reserve($target, $source);
                 $assets[$source] = $target;
                 $manifest[$source] = [['url' => $settings->url($target), 'params' => []]];
+                $progress(new BuildProgress('preparing', source: $source));
             }
             $resolver = new AssetResolver($settings, $manifest);
             $collections = Collections::create(array_map(static fn(PreparedSource $item): Page => $item->page, $prepared));
+            $total = count($prepared) + count($assets);
+            $completed = 0;
+            $progress(new BuildProgress('building', total: $total));
             foreach ($prepared as $item) {
                 $files->dumpFile($stage . '/' . $item->page->outputPath, $this->render($item, $session, $plugins, $collections, $resolver));
+                $progress(new BuildProgress('building', ++$completed, $total, $item->instance->source, $item->page->outputPath));
             }
             foreach ($assets as $source => $target) {
                 if (isset($compiled[$source])) {
@@ -91,7 +101,9 @@ final class Builder
                         $files->copy($source, $stage . '/' . $target);
                     }
                 }
+                $progress(new BuildProgress('building', ++$completed, $total, $source, $target));
             }
+            $progress(new BuildProgress('publishing'));
             $publisher->publish();
             return new BuildResult(count($prepared), count($assets), $settings->output, microtime(true) - $started);
         } catch (BuildException $error) {
@@ -133,7 +145,7 @@ final class Builder
             return new PreparedSource($instance, $page, $preparation, $output);
         } catch (\Throwable $error) {
             $hint = preg_match('/Undefined variable \$(page|collections|hanji)\b/', $error->getMessage()) ? ' Page URLs, collections and rendering helpers are unavailable while collecting declarations.' : '';
-            throw new BuildException("{$instance->source}: {$error->getMessage()}{$hint}", 0, $error);
+            throw new BuildException("{$instance->source}: {$error->getMessage()}{$hint}", 0, $error, source: $instance->source, hint: $hint === '' ? null : trim($hint));
         }
     }
 
@@ -165,7 +177,7 @@ final class Builder
             }
             return $this->transform($source, $context, $this->matchingTransforms($source, $context, $plugins), $output->content);
         } catch (\Throwable $error) {
-            throw new BuildException("{$source} [{$page->url}]: {$error->getMessage()}", 0, $error);
+            throw new BuildException("{$source} [{$page->url}]: {$error->getMessage()}", 0, $error, source: $source, url: $page->url);
         }
     }
 
@@ -176,7 +188,7 @@ final class Builder
         try {
             return ContextStack::run($runtime, static fn(): array => array_values(array_filter($plugins->transforms(), static fn(TransformPlugin $plugin): bool => $plugin->supports($path, $context))));
         } catch (\Throwable $error) {
-            throw new BuildException("{$path}: transform selection failed: {$error->getMessage()}", 0, $error);
+            throw new BuildException("{$path}: transform selection failed: {$error->getMessage()}", 0, $error, source: $path);
         }
     }
 
@@ -193,7 +205,7 @@ final class Builder
             });
             return $context->session->origins->strip($content);
         } catch (\Throwable $error) {
-            throw new BuildException("{$path}: transform failed: {$error->getMessage()}", 0, $error);
+            throw new BuildException("{$path}: transform failed: {$error->getMessage()}", 0, $error, source: $path);
         }
     }
 

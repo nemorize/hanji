@@ -35,7 +35,7 @@ final class Scripts
             }
             return [$value, (string) ob_get_contents()];
         } catch (\Throwable $error) {
-            throw new BuildException("{$path}:{$error->getLine()}: {$error->getMessage()}", 0, $error);
+            throw new BuildException("{$path}:{$error->getLine()}: {$error->getMessage()}", 0, $error, source: $path);
         } finally {
             restore_error_handler();
             while (ob_get_level() > $depth) {

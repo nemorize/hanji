@@ -24,7 +24,7 @@ final class CompilerEngine extends \Illuminate\View\Engines\CompilerEngine
         try {
             return ContextStack::run($context, static fn(): string => Scripts::require($path, $data)[1]);
         } catch (\Throwable $error) {
-            throw new BuildException("{$origin}: {$error->getMessage()}", 0, $error);
+            throw new BuildException("{$origin}: {$error->getMessage()}", 0, $error, source: $origin);
         }
     }
 }
