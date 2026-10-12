@@ -391,6 +391,7 @@ final class BuildTest extends TestCase
         yield 'static parameter provider' => [['@params.php' => '<?php return ["one"];'], 'requires a dynamic directory'];
         yield 'reused parameter name' => [['[name]/@params.php' => '<?php return ["one"];', '[name]/[name]/@params.php' => '<?php return ["two"];'], 'duplicate dynamic parameter'];
         yield 'ambiguous dynamic reference' => [['index.blade.php' => '<script src="./[name]/data.php"></script>', '[name]/@params.php' => '<?php return ["one","two"];', '[name]/data.php' => '<?php Hanji::extension("json"); echo "{}";'], 'Ambiguous dynamic asset'];
+        yield 'ambiguous dynamic link' => [['index.blade.php' => '<a href="./[name]/index.php">Page</a>', '[name]/@params.php' => '<?php return ["one","two"];', '[name]/index.php' => 'Page'], 'Ambiguous dynamic asset'];
         yield 'duplicate data' => [['@data.php' => '<?php return [];', '@data.json' => '{}'], 'Duplicate data'];
     }
 

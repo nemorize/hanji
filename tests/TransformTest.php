@@ -7,11 +7,13 @@ namespace Hanji\Tests;
 use Hanji\Builder;
 use Hanji\BuildException;
 use Hanji\Config;
+use Hanji\Plugin\AssetBuildPlugin;
 use Hanji\Plugin\Build\BladeBuildPlugin;
 use Hanji\Plugin\Build\MarkdownBuildPlugin;
 use Hanji\Plugin\Build\PhpBuildPlugin;
 use Hanji\Plugin\Build\ScssBuildPlugin;
 use Hanji\Plugin\BuildContext;
+use Hanji\Plugin\BuildOutput;
 use Hanji\Plugin\Transform\RelativePathTransformPlugin;
 use Hanji\Plugin\TransformPlugin;
 use Illuminate\Container\Container;
@@ -114,6 +116,107 @@ final class TransformTest extends TestCase
         self::assertSame(['one', 'two'], $second->calls);
         self::assertSame('<main><img src="/docs/static/%5Bname%5D/cover.svg"></main><span>first</span><span>second</span>', $this->read('one/index.html'));
         self::assertSame($this->read('one/index.html'), $this->read('two/index.html'));
+    }
+
+    public function testOriginalScssFileNamesResolveWithoutAnotherTransformPlugin(): void
+    {
+        $html = '<link rel="stylesheet" href="styles/Style.scss?v=1&amp;theme=paper#css">';
+        $this->write('site/index.blade.php', $html);
+        $this->write('site/styles/Style.scss', '.paper { color: #123456; }');
+        $this->build((new Config())->plugin(new ScssBuildPlugin())->basePath('/docs/'));
+        self::assertSame('<link rel="stylesheet" href="/docs/styles/Style.css?v=1&amp;theme=paper#css">', $this->read('index.html'));
+        self::assertStringContainsString('.paper', $this->read('styles/Style.css'));
+        self::assertFileDoesNotExist($this->root . '/_site/styles/Style.scss');
+
+        $this->build((new Config())->plugins(new BladeBuildPlugin(), new ScssBuildPlugin()));
+        self::assertSame($html, $this->read('index.html'));
+        self::assertFileExists($this->root . '/_site/styles/Style.css');
+    }
+
+    public function testSourceFileLinksUseCompiledRoutesInEveryHtmlFormat(): void
+    {
+        $links = <<<'HTML'
+            <a href="./detail.blade.php?v=1&amp;lang=ko#intro">Blade</a>
+            <area href=./native.php>
+            <link rel="canonical" href="./post.md">
+            <iframe src="./detail.blade.php"></iframe>
+            <form action="./feed.php"><input formaction="./feed.php"><button formaction="./feed.php">Feed</button></form>
+            <object data="./feed.php"></object><embed src="./detail.blade.php"><track src="./feed.php">
+            <a href="./does-not-exist">Keep</a><a href="../outside">Outside</a>
+            <a href="https://example.com/detail.blade.php">External</a><a href="/guide/">Root</a>
+            <a href="#section">Fragment</a><a href="?sort=asc">Query</a><a href="mailto:hello@example.com">Email</a>
+            <!-- <a href="./detail.blade.php">Comment</a> -->
+            <script>const example = '<a href="./detail.blade.php">Example</a>';</script>
+            <code><a href="./detail.blade.php">Code</a></code>
+            HTML;
+        $this->write('site/index.blade.php', $links);
+        $this->write('site/static.html', $links);
+        $this->write('site/page.php', '<?php echo ' . var_export($links, true) . ';');
+        $this->write('site/links.md', '[Blade](./detail.blade.php) [PHP](./native.php) [Markdown](./post.md)');
+        $this->write('site/detail.blade.php', '@meta(["permalink" => "/guide/"])Guide');
+        $this->write('site/native.php', 'Native');
+        $this->write('site/post.md', '# Post');
+        $this->write('site/feed.php', '<?php Hanji::extension("json"); echo "{}";');
+        $this->build((new Config())->basePath('/docs/'));
+        foreach (['index.html', 'static.html', 'page/index.html'] as $path) {
+            $html = $this->read($path);
+            self::assertStringContainsString('<a href="/docs/guide/?v=1&amp;lang=ko#intro">Blade</a>', $html);
+            self::assertStringContainsString('<area href="/docs/native/">', $html);
+            self::assertStringContainsString('<link rel="canonical" href="/docs/post/">', $html);
+            self::assertStringContainsString('<iframe src="/docs/guide/">', $html);
+            self::assertSame(3, substr_count($html, 'action="/docs/feed.json"'));
+            self::assertStringContainsString('<object data="/docs/feed.json">', $html);
+            self::assertStringContainsString('<embed src="/docs/guide/">', $html);
+            self::assertStringContainsString('<track src="/docs/feed.json">', $html);
+            self::assertStringContainsString('<a href="./does-not-exist">Keep</a><a href="../outside">Outside</a>', $html);
+            self::assertStringContainsString('<a href="https://example.com/detail.blade.php">External</a><a href="/guide/">Root</a>', $html);
+            self::assertStringContainsString('<a href="#section">Fragment</a><a href="?sort=asc">Query</a><a href="mailto:hello@example.com">Email</a>', $html);
+            self::assertStringContainsString('<!-- <a href="./detail.blade.php">Comment</a> -->', $html);
+            self::assertStringContainsString("const example = '<a href=\"./detail.blade.php\">Example</a>';", $html);
+            self::assertStringContainsString('<code><a href="./detail.blade.php">Code</a></code>', $html);
+            self::assertStringNotContainsString('hanji-origin:', $html);
+        }
+        $markdown = $this->read('links/index.html');
+        self::assertStringContainsString('href="/docs/guide/"', $markdown);
+        self::assertStringContainsString('href="/docs/native/"', $markdown);
+        self::assertStringContainsString('href="/docs/post/"', $markdown);
+    }
+
+    public function testCustomBuildOutputsKeepLayoutIncludeComponentAndDynamicOrigins(): void
+    {
+        $plugin = new class implements AssetBuildPlugin {
+            public function supports(string $path): bool
+            {
+                return str_ends_with($path, '.picture');
+            }
+
+            public function build(string $path, BuildContext $context): BuildOutput
+            {
+                return new BuildOutput('<svg/>', 'svg');
+            }
+        };
+        $this->write('site/@layout.blade.php', '<link rel="icon" href="./root.picture">@include("links")<x-links>{{ Hanji::children() }}</x-links>');
+        $this->write('site/root.picture', 'root');
+        $this->write('site/_includes/@links.blade.php', '<a href="./detail.blade.php">Include</a>');
+        $this->write('site/_includes/detail.blade.php', '@meta(["permalink" => "/included/"])Included');
+        $this->write('site/_includes/components/@links.blade.php', '<meta property="og:image" content="./card.picture">{{ $slot }}');
+        $this->write('site/_includes/components/card.picture', 'card');
+        $this->write('site/products/[name]/@params.php', '<?php return ["one", "two"];');
+        $this->write('site/products/[name]/index.blade.php', '<a href="./index.blade.php">Self</a><img src="./cover.picture" srcset="./cover.picture 1x, data:image/png;base64,AA== 2x">');
+        $this->write('site/products/[name]/cover.picture', 'cover');
+        $this->build((new Config())->plugin($plugin)->copy('products', 'static/products')->basePath('/docs/'));
+        foreach (['one', 'two'] as $name) {
+            $html = $this->read('products/' . $name . '/index.html');
+            self::assertStringContainsString('href="/docs/root.svg"', $html);
+            self::assertStringContainsString('href="/docs/included/"', $html);
+            self::assertStringContainsString('content="/docs/_includes/components/card.svg"', $html);
+            self::assertStringContainsString('href="/docs/products/' . $name . '/"', $html);
+            self::assertStringContainsString('src="/docs/static/products/%5Bname%5D/cover.svg"', $html);
+            self::assertStringContainsString('srcset="/docs/static/products/%5Bname%5D/cover.svg 1x, data:image/png;base64,AA== 2x"', $html);
+            self::assertStringNotContainsString('hanji-origin:', $html);
+        }
+        self::assertFileExists($this->root . '/_site/static/products/[name]/cover.svg');
+        self::assertFileDoesNotExist($this->root . '/_site/static/products/one/cover.svg');
     }
 
     public function testCopiedAndCompiledAssetsAndTextOutputsUseTheSameTransformPipeline(): void

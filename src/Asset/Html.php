@@ -134,6 +134,76 @@ final class Html
     }
 
     /** @return list<string> */
+    public static function outputReferences(string $name, string $tag): array
+    {
+        return match ($name) {
+            'a', 'area', 'link' => ['href'],
+            'iframe', 'embed', 'track' => ['src'],
+            'object' => ['data'],
+            'form' => ['action'],
+            'input' => ['src', 'formaction'],
+            'button' => ['formaction'],
+            default => self::references($name, $tag),
+        };
+    }
+
+    /**
+     * @param callable(string, int, bool): string $resolve URL, opening tag offset and whether a public asset is required.
+     */
+    public static function rewriteReferences(string $content, callable $resolve): string
+    {
+        foreach (array_reverse(self::tags($content, false)) as $tag) {
+            $text = substr($content, $tag['start'], $tag['end'] - $tag['start']);
+            $attributes = self::attributes($text, false);
+            $names = self::outputReferences($tag['name'], $text);
+            $required = self::references($tag['name'], $text);
+            uasort($attributes, static fn(array $a, array $b): int => $b['start'] <=> $a['start']);
+            foreach ($attributes as $name => $attribute) {
+                if (!in_array($name, $names, true)) {
+                    continue;
+                }
+                $value = html_entity_decode($attribute['value'], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $url = static fn(string $url): string => $resolve($url, $tag['start'], in_array($name, $required, true));
+                $rewritten = $name === 'srcset' ? self::srcset($value, $url) : $url($value);
+                if ($rewritten === $value) {
+                    continue;
+                }
+                $rewritten = htmlspecialchars($rewritten, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
+                if ($attribute['quote'] === '') {
+                    $rewritten = '"' . $rewritten . '"';
+                }
+                $text = substr_replace($text, $rewritten, $attribute['start'], $attribute['length']);
+            }
+            $content = substr_replace($content, $text, $tag['start'], $tag['end'] - $tag['start']);
+        }
+        return $content;
+    }
+
+    /** @param callable(string): string $resolve */
+    private static function srcset(string $value, callable $resolve): string
+    {
+        $result = '';
+        $length = strlen($value);
+        for ($i = 0; $i < $length;) {
+            $start = $i;
+            $i += strspn($value, " \t\r\n,", $i);
+            $result .= substr($value, $start, $i - $start);
+            if ($i >= $length) {
+                break;
+            }
+            $start = $i;
+            $data = strncasecmp(substr($value, $i, 5), 'data:', 5) === 0;
+            $i += strcspn($value, $data ? " \t\r\n" : " \t\r\n,", $i);
+            $url = substr($value, $start, $i - $start);
+            $result .= $resolve($url);
+            $start = $i;
+            $i += strcspn($value, ',', $i);
+            $result .= substr($value, $start, $i - $start);
+        }
+        return $result;
+    }
+
+    /** @return list<string> */
     private static function metaReferences(string $tag): array
     {
         $attributes = self::attributes($tag, false);
