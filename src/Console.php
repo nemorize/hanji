@@ -6,6 +6,8 @@ namespace Hanji;
 
 use Hanji\Output\Publisher;
 use Hanji\Console\Reporter;
+use Hanji\Dev\Failure;
+use Hanji\Dev\Runner;
 use Hanji\Support\Paths;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Command\Command;
@@ -53,7 +55,19 @@ final class Console
             (new Initializer())->initialize($directory);
             $reporter->initialized($directory);
         }));
-        $application->addCommands([$build, $clean, $init]);
+        $serve = (new Command('serve'))->setDescription('Preview the site with CSS HMR and live reload.')
+            ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Configuration file.')
+            ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Host to listen on.', '127.0.0.1')
+            ->addOption('port', 'p', InputOption::VALUE_REQUIRED, 'Preview port (0 selects an available port).', '3000');
+        $serve->setCode(self::handle('serve', static function (InputInterface $input, Reporter $reporter): void {
+            $host = self::stringOption($input, 'host');
+            $port = self::stringOption($input, 'port');
+            if ($host === null || $port === null || !ctype_digit($port) || strlen($port) > 5 || (int) $port > 65535) {
+                throw new ConfigurationException('serve requires a valid host and a port between 0 and 65535.');
+            }
+            (new Runner(getcwd() ?: '.', self::stringOption($input, 'config'), $reporter, $host, (int) $port))->run();
+        }));
+        $application->addCommands([$build, $clean, $init, $serve]);
         return $application;
     }
 
@@ -84,6 +98,10 @@ final class Console
                 $action($input, $reporter);
                 return Command::SUCCESS;
             } catch (\Throwable $error) {
+                if ($error instanceof Failure) {
+                    $reporter->diagnostic($error->diagnostic);
+                    return $error->configuration ? Command::INVALID : Command::FAILURE;
+                }
                 $reporter->error($error);
                 return $error instanceof ConfigurationException ? Command::INVALID : Command::FAILURE;
             }

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Hanji\Console;
 
-use Hanji\BuildException;
 use Hanji\BuildProgress;
 use Hanji\BuildResult;
+use Hanji\Diagnostic;
+use Hanji\Dev\Project;
 use Hanji\Settings;
-use Hanji\Support\Paths;
 use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Output\ConsoleOutputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -18,7 +18,7 @@ use Symfony\Component\Console\Terminal;
 final class Reporter
 {
     private readonly OutputInterface $errors;
-    private ?Settings $settings = null;
+    private Settings|Project|null $settings = null;
     private ?StatusLine $status = null;
     private ?string $stage = null;
     private readonly Terminal $terminal;
@@ -36,7 +36,7 @@ final class Reporter
         $this->output->writeln('');
     }
 
-    public function project(Settings $settings): void
+    public function project(Settings|Project $settings): void
     {
         $this->settings = $settings;
         $this->root = $settings->root;
@@ -108,44 +108,51 @@ final class Reporter
 
     public function error(\Throwable $error): void
     {
+        $this->diagnostic(Diagnostic::from($error, $this->settings?->cache));
+    }
+
+    public function diagnostic(Diagnostic $error): void
+    {
         $this->endProgress(true);
-        $cause = $error;
-        $source = null;
-        $url = null;
-        $hints = [];
-        do {
-            if ($cause instanceof BuildException) {
-                if ($cause->source !== null && ($this->settings === null || !Paths::within($cause->source, $this->settings->cache))) {
-                    $source = $cause->source;
-                }
-                $url ??= $cause->url;
-                if ($cause->hint !== null) {
-                    $hints[] = $cause->hint;
-                }
-            }
-            $previous = $cause->getPrevious();
-            if ($previous === null) {
-                break;
-            }
-            $cause = $previous;
-        } while (true);
-        $message = $cause->getMessage();
-        if ($source !== null && str_ends_with($message, ' in ' . $source)) {
-            $message = substr($message, 0, -strlen(' in ' . $source));
-        }
         $this->errors->writeln('', OutputInterface::VERBOSITY_QUIET);
-        $this->errors->writeln('  ' . Style::color('✗ Error:', 'red', true) . ' ' . OutputFormatter::escape($this->shorten($message)), OutputInterface::VERBOSITY_QUIET);
-        if ($source !== null) {
-            $this->field($this->errors, 'Source', $this->path($source), OutputInterface::VERBOSITY_QUIET);
+        $this->errors->writeln('  ' . Style::color('✗ Error:', 'red', true) . ' ' . OutputFormatter::escape($this->shorten($error->message)), OutputInterface::VERBOSITY_QUIET);
+        if ($error->source !== null) {
+            $this->field($this->errors, 'Source', $this->path($error->source), OutputInterface::VERBOSITY_QUIET);
         }
-        if ($url !== null) {
-            $this->field($this->errors, 'URL', $url, OutputInterface::VERBOSITY_QUIET);
+        if ($error->url !== null) {
+            $this->field($this->errors, 'URL', $error->url, OutputInterface::VERBOSITY_QUIET);
         }
-        foreach (array_unique($hints) as $hint) {
+        foreach ($error->hints as $hint) {
             $this->field($this->errors, 'Hint', $hint, OutputInterface::VERBOSITY_QUIET);
         }
         $this->errors->writeln('', OutputInterface::VERBOSITY_QUIET);
-        $this->errors->writeln(Style::color((string) $error, 'gray'), OutputInterface::VERBOSITY_VERBOSE);
+        $this->errors->writeln(Style::color($error->trace, 'gray'), OutputInterface::VERBOSITY_VERBOSE);
+    }
+
+    public function serving(string $url): void
+    {
+        $this->output->writeln('');
+        $this->field($this->output, 'Local', $url);
+        $this->field($this->output, 'Watch', $this->path($this->settings->input ?? $this->root));
+        $this->field($this->output, 'Updates', 'CSS HMR · live reload');
+        $this->field($this->output, 'Stop', 'Ctrl+C');
+        $this->output->writeln('');
+    }
+
+    /** @param list<string> $paths */
+    public function changed(array $paths): void
+    {
+        $this->output->writeln(Style::row('↻', 'watch', self::count(count($paths), 'file') . ' changed', 'yellow'));
+        foreach ($paths as $path) {
+            $this->output->writeln('    ' . Style::color($this->path($path), 'gray'), OutputInterface::VERBOSITY_VERBOSE);
+        }
+    }
+
+    public function requests(string $output): void
+    {
+        if ($output !== '') {
+            $this->output->writeln(Style::color(trim($output), 'gray'), OutputInterface::VERBOSITY_VERY_VERBOSE);
+        }
     }
 
     private function endProgress(bool $failed = false): void

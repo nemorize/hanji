@@ -43,6 +43,25 @@ final class ConsoleTest extends TestCase
         self::assertSame('Home', file_get_contents($this->root . '/_site/index.html'));
     }
 
+    public function testPreviewCommandHasNoAliasesAndHasHostAndPortOptions(): void
+    {
+        $application = Console::application();
+        $serve = $application->find('serve');
+        self::assertFalse($application->has('dev'));
+        self::assertSame([], $serve->getAliases());
+        self::assertSame('127.0.0.1', $serve->getDefinition()->getOption('host')->getDefault());
+        self::assertSame('3000', $serve->getDefinition()->getOption('port')->getDefault());
+    }
+
+    public function testPreviewRejectsInvalidAddressAndMissingConfig(): void
+    {
+        foreach ([['--port' => '65536'], ['--port' => 'no'], ['--host' => '../invalid'], ['--config' => $this->root . '/missing.php']] as $arguments) {
+            $tester = $this->runCommand('serve', $arguments);
+            self::assertSame(2, $tester->getStatusCode());
+            self::assertStringContainsString('Error:', $tester->getErrorOutput());
+        }
+    }
+
     public function testVerboseBuildReportsEachDynamicOutputAndLiteralAssetOnce(): void
     {
         $this->write('site/[name]/@params.php', '<?php return ["one", "two"];');
