@@ -133,6 +133,72 @@ final class TransformTest extends TestCase
         self::assertFileExists($this->root . '/_site/styles/Style.css');
     }
 
+    public function testCssReferencesFollowCopyMappingsAndBasePath(): void
+    {
+        $css = <<<'CSS'
+            @import /* theme */ "./theme.css" layer(paper) supports(display: grid) screen;
+            @import url('./print.css') print;
+            .logo { background: url(../images/logo.svg?v=1#mark); }
+            .cover { background: URL("../images/a b.svg?theme=paper&v=1#cover"); }
+            @font-face { src: url('../fonts/paper.woff2') format('woff2'); }
+            CSS;
+        $this->write('site/assets/css/app.css', $css);
+        $this->write('site/assets/css/theme.css', '.theme { background: url(../images/logo.svg); }');
+        $this->write('site/assets/css/print.css', 'body { color: black; }');
+        $this->write('site/assets/images/logo.svg', '<svg/>');
+        $this->write('site/assets/images/a b.svg', '<svg/>');
+        $this->write('site/assets/fonts/paper.woff2', 'font');
+        $this->write('site/index.blade.php', '<link rel="stylesheet" href="./assets/css/app.css">');
+        $this->build((new Config())->copy('assets/css', 'public/css')->copy('assets/images', 'static/images')->copy('assets/fonts', 'static/fonts')->basePath('/docs/'));
+        self::assertSame(<<<'CSS'
+            @import /* theme */ "/docs/public/css/theme.css" layer(paper) supports(display: grid) screen;
+            @import url('/docs/public/css/print.css') print;
+            .logo { background: url(/docs/static/images/logo.svg?v=1#mark); }
+            .cover { background: URL("/docs/static/images/a%20b.svg?theme=paper&v=1#cover"); }
+            @font-face { src: url('/docs/static/fonts/paper.woff2') format('woff2'); }
+            CSS, $this->read('public/css/app.css'));
+        self::assertSame('.theme { background: url(/docs/static/images/logo.svg); }', $this->read('public/css/theme.css'));
+        self::assertSame('<link rel="stylesheet" href="/docs/public/css/app.css">', $this->read('index.html'));
+        self::assertFileExists($this->root . '/_site/static/images/logo.svg');
+        self::assertFileDoesNotExist($this->root . '/_site/assets/images/logo.svg');
+    }
+
+    public function testCompiledAndGeneratedCssUseTheirSourcePathsForReferences(): void
+    {
+        $this->write('site/images/logo.svg', '<svg/>');
+        $this->write('site/styles/app.scss', '.logo { background: url("../images/logo.svg?v=1#mark"); }');
+        $this->write('site/theme.php', '<?php Hanji::extension("css"); echo \'@import "./styles/app.scss"; .logo { background: url(./images/logo.svg); }\';');
+        $this->build((new Config())->plugin(new ScssBuildPlugin())->copy('styles/app.scss', 'public/main.css')->copy('images', 'static/images')->basePath('/docs/'));
+        self::assertStringContainsString('/docs/static/images/logo.svg?v=1#mark', $this->read('public/main.css'));
+        self::assertSame('@import "/docs/public/main.css"; .logo { background: url(/docs/static/images/logo.svg); }', $this->read('theme.css'));
+    }
+
+    public function testCssReferencesCanBeDisabledWithTheRelativePathTransform(): void
+    {
+        $css = '@import "./missing.css"; body { background: url(./missing.svg); }';
+        $this->write('site/styles/app.css', $css);
+        $this->build((new Config())->plugins(new BladeBuildPlugin(), new PhpBuildPlugin(), new MarkdownBuildPlugin())->copy('styles', 'public'));
+        self::assertSame($css, $this->read('public/app.css'));
+    }
+
+    public function testMissingCssReferencesPreserveThePreviousOutput(): void
+    {
+        $this->write('site/style.css', 'body { color: red; }');
+        $this->build();
+        foreach (['body { background: url(./missing.svg); }', '@import "./missing.css";'] as $css) {
+            $this->write('site/style.css', $css);
+            try {
+                $this->build();
+                self::fail('Missing CSS references must abort the build.');
+            } catch (BuildException $error) {
+                self::assertStringContainsString('Missing asset', $error->getMessage());
+                self::assertStringContainsString('style.css', $error->getMessage());
+            }
+            self::assertSame('body { color: red; }', $this->read('style.css'));
+            self::assertSame([], glob($this->root . '/.hanji-build-*'));
+        }
+    }
+
     public function testSourceFileLinksUseCompiledRoutesInEveryHtmlFormat(): void
     {
         $links = <<<'HTML'
