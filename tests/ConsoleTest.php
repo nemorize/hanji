@@ -51,6 +51,7 @@ final class ConsoleTest extends TestCase
         self::assertSame([], $serve->getAliases());
         self::assertSame('127.0.0.1', $serve->getDefinition()->getOption('host')->getDefault());
         self::assertSame('3000', $serve->getDefinition()->getOption('port')->getDefault());
+        self::assertFalse($serve->getDefinition()->hasOption('watcher'));
     }
 
     public function testPreviewRejectsInvalidAddressAndMissingConfig(): void

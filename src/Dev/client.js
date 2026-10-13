@@ -9,8 +9,10 @@
   let errorKey;
   let dismissedError;
   let paused = false;
-  let polling = false;
-  let pollTimer;
+  let socket;
+  let retryTimer;
+  let retryDelay = 250;
+  let updates = Promise.resolve();
 
   function hideError() {
     overlay?.remove();
@@ -69,6 +71,9 @@
   }
 
   function reload(nextBasePath) {
+    paused = true;
+    clearTimeout(retryTimer);
+    socket?.close();
     if (nextBasePath && nextBasePath !== basePath && location.pathname.startsWith(basePath)) {
       location.replace(nextBasePath + location.pathname.slice(basePath.length) + location.search + location.hash);
     } else {
@@ -94,49 +99,56 @@
     return true;
   }
 
-  async function poll() {
-    if (paused || polling) return;
-    polling = true;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
-    try {
-      const response = await fetch('/__hanji/status', { cache: 'no-store', signal: controller.signal });
-      if (!response.ok) throw new Error('Preview disconnected');
-      const state = await response.json();
-      if (state.status === 'error' && state.error) {
-        showError(state.error);
-      } else if (state.status === 'building') {
-        dismissedError = undefined;
-      } else if (state.status === 'ready') {
-        dismissedError = undefined;
-        hideError();
-        if (state.session !== session) return reload(state.basePath);
-        if (state.revision !== revision) {
-          const changes = state.changes.filter(change => change.revision > revision);
-          if (changes.length === 0 || changes[0].revision !== revision + 1 || changes.some(change => change.type === 'reload')) return reload(state.basePath);
-          if (changes.some(change => change.type === 'css')) {
-            try {
-              if (!await styles(state.revision)) return reload(state.basePath);
-            } catch {
-              return reload(state.basePath);
-            }
-          }
-          revision = state.revision;
-          basePath = state.basePath;
+  async function apply(state) {
+    if (paused) return;
+    if (state.status === 'error' && state.error) {
+      showError(state.error);
+    } else if (state.status === 'building') {
+      dismissedError = undefined;
+    } else if (state.status === 'ready') {
+      dismissedError = undefined;
+      hideError();
+      if (state.session !== session) return reload(state.basePath);
+      if (state.revision <= revision) return;
+      const changes = state.changes.filter(change => change.revision > revision);
+      if (changes.length === 0 || changes[0].revision !== revision + 1 || changes.some(change => change.type === 'reload')) return reload(state.basePath);
+      if (changes.some(change => change.type === 'css')) {
+        try {
+          if (!await styles(state.revision)) return reload(state.basePath);
+        } catch {
+          return reload(state.basePath);
         }
       }
-    } catch {
-      // Keep the current page while the development server restarts.
-    } finally {
-      clearTimeout(timeout);
-      polling = false;
-      if (!paused) {
-        clearTimeout(pollTimer);
-        pollTimer = setTimeout(poll, 350);
-      }
+      revision = state.revision;
+      basePath = state.basePath;
     }
   }
-  addEventListener('pagehide', () => { paused = true; clearTimeout(pollTimer); });
-  addEventListener('pageshow', () => { if (paused) { paused = false; poll(); } });
-  poll();
+
+  function connect() {
+    if (paused) return;
+    const url = new URL('/__hanji/ws', location.href);
+    url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const current = new WebSocket(url);
+    socket = current;
+    current.onopen = () => { retryDelay = 250; };
+    current.onmessage = event => {
+      if (current !== socket || paused) return;
+      try {
+        const state = JSON.parse(event.data);
+        updates = updates.then(() => apply(state)).catch(() => reload());
+      } catch {
+        current.close();
+      }
+    };
+    current.onerror = () => current.close();
+    current.onclose = () => {
+      if (current !== socket || paused) return;
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 5000);
+    };
+  }
+  addEventListener('pagehide', () => { paused = true; clearTimeout(retryTimer); socket?.close(); });
+  addEventListener('pageshow', () => { if (paused) { paused = false; connect(); } });
+  connect();
 })();

@@ -5,6 +5,8 @@
     "license": "proprietary",
     "require": {
         "php": "^8.5",
+        "amphp/http-server": "^3.4",
+        "amphp/websocket-server": "^4.0",
         "illuminate/container": "^13.0",
         "illuminate/events": "^13.0",
         "illuminate/filesystem": "^13.0",
@@ -25,6 +27,7 @@
         "scssphp/scssphp": "^2.1"
     },
     "suggest": {
+        "ext-ffi": "Enables native FSEvents (macOS) and inotify (Linux) file watching.",
         "scssphp/scssphp": "^2.1 enables the optional PHP SCSS build plugin."
     },
     "autoload": {

@@ -2,20 +2,36 @@
 
 declare(strict_types=1);
 
+use Amp\Http\Server\DefaultErrorHandler;
+use Amp\Http\Server\SocketHttpServer;
 use Hanji\Dev\Protocol;
-use Hanji\Dev\Router;
+use Hanji\Dev\SocketHandler;
+use Hanji\Support\Maps;
+use Psr\Log\NullLogger;
+use Revolt\EventLoop;
+
+use function Amp\async;
+use function Amp\ByteStream\getStdin;
 
 require __DIR__ . '/bootstrap.php';
-$state = getenv('HANJI_DEV_STATE');
-if (!is_string($state) || $state === '') {
-    http_response_code(503);
-    exit;
-}
-$uri = $_SERVER['REQUEST_URI'] ?? '/';
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$host = $_SERVER['HTTP_HOST'] ?? '';
-if (!is_string($uri) || !is_string($method) || !is_string($host)) {
-    http_response_code(400);
-    exit;
-}
-(new Router(Protocol::read($state)))->handle($uri, $method, $host)->send($method === 'HEAD');
+$address = $argv[1] ?? '';
+$statePath = $argv[2] ?? '';
+$logger = new NullLogger();
+$server = SocketHttpServer::createForDirectAccess($logger);
+$server->expose($address);
+$handler = new SocketHandler($server, $logger, Protocol::read($statePath));
+$server->start($handler, new DefaultErrorHandler());
+async(static function () use ($handler, $server): void {
+    $buffer = '';
+    $input = getStdin();
+    while (($chunk = $input->read()) !== null) {
+        $buffer .= $chunk;
+        while (($end = strpos($buffer, "\n")) !== false) {
+            $line = substr($buffer, 0, $end);
+            $buffer = substr($buffer, $end + 1);
+            $handler->update(Maps::validate(json_decode($line, true, 512, JSON_THROW_ON_ERROR), 'Preview update'));
+        }
+    }
+    $server->stop();
+})->ignore();
+EventLoop::run();

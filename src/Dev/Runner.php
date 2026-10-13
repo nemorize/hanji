@@ -20,9 +20,7 @@ final class Runner
     private ?Worker $worker = null;
     private ?HttpServer $http = null;
     private ?LiveState $state = null;
-    private ?Project $watch = null;
-    /** @var array<string, string> */
-    private array $snapshot = [];
+    private readonly Watcher $watcher;
     /** @var array<string, string> */
     private array $output = [];
     /** @var list<string> */
@@ -32,12 +30,12 @@ final class Runner
     /** @var array<string, true> */
     private array $pending = [];
     private float $changedAt = 0;
-    private float $observedAt = 0;
     private bool $stopped = false;
 
     public function __construct(string $directory, ?string $config, private readonly Reporter $reporter, private readonly string $host = '127.0.0.1', private readonly int $port = 3000)
     {
         HttpServer::validate($host, $port);
+        $this->watcher = new Watcher();
         $this->directory = Paths::absolute($directory, getcwd() ?: '.');
         $this->config = $config === null ? null : Paths::absolute($config, $this->directory);
         $this->configPath = $this->config ?? $this->directory . '/hanji.php';
@@ -67,7 +65,7 @@ final class Runner
         $this->state = new LiveState($project, $this->session . '/state.json', $this->host);
         $this->accept($outcome);
         $this->http = new HttpServer($this->host, $this->port, $this->session);
-        $this->reporter->serving($this->http->url($project));
+        $this->reporter->serving($this->http->url($project), $this->watcher->name());
     }
 
     public function tick(): void
@@ -89,6 +87,7 @@ final class Runner
             $this->reporter->changed(array_keys($this->pending));
             $this->pending = [];
             $state->building();
+            $this->publish();
             $this->worker = new Worker($this->directory, $this->config, $this->session);
         }
     }
@@ -137,6 +136,7 @@ final class Runner
         $this->stopped = true;
         $this->worker?->close();
         $this->http?->close();
+        $this->watcher->close();
         $this->worker = null;
         $this->http = null;
         (new Filesystem())->remove($this->session);
@@ -159,7 +159,7 @@ final class Runner
 
     private function accept(Outcome $outcome): void
     {
-        $this->dependencies = $outcome->dependencies;
+        $this->dependencies = $outcome->result === null ? array_values(array_unique([...$this->dependencies, ...$outcome->dependencies])) : $outcome->dependencies;
         if ($outcome->project !== null) {
             $this->configure($outcome->project);
         }
@@ -172,34 +172,30 @@ final class Runner
             $this->state?->failed($outcome->error);
             $this->reporter->diagnostic($outcome->error);
         }
+        $this->publish();
+    }
+
+    private function publish(): void
+    {
+        if ($this->http !== null) {
+            $this->http->publish(Protocol::read($this->session . '/state.json'));
+        }
     }
 
     private function configure(Project $project): void
     {
         $this->excluded = array_values(array_unique([...$this->excluded, $project->output, $project->cache, $this->session]));
-        $this->watch = $project;
-        $next = Snapshot::sources($project, $this->configPath, $this->dependencies, $this->excluded);
-        if ($this->snapshot === []) {
-            $this->snapshot = $next;
-        } else {
-            $this->snapshot = [...array_intersect_key($this->snapshot, $next), ...array_diff_key($next, $this->snapshot)];
-        }
+        $this->watcher->configure($project, $this->configPath, $this->dependencies, $this->excluded);
     }
 
     private function observe(): void
     {
-        if ($this->watch === null || microtime(true) - $this->observedAt < 0.15) {
-            return;
-        }
-        $this->observedAt = microtime(true);
-        $next = Snapshot::sources($this->watch, $this->configPath, $this->dependencies, $this->excluded);
-        $changes = Snapshot::changes($this->snapshot, $next);
+        $changes = $this->watcher->changes();
         if ($changes !== []) {
             foreach ($changes as $path) {
                 $this->pending[$path] = true;
             }
             $this->changedAt = microtime(true);
-            $this->snapshot = $next;
         }
     }
 }

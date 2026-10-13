@@ -7,10 +7,12 @@ namespace Hanji\Dev;
 use Hanji\BuildException;
 use Hanji\ConfigurationException;
 use Symfony\Component\Process\Process;
+use Symfony\Component\Process\InputStream;
 
 final class HttpServer
 {
     private readonly Process $process;
+    private readonly InputStream $input;
     public readonly int $port;
 
     public function __construct(private readonly string $host, int $port, string $session)
@@ -23,7 +25,8 @@ final class HttpServer
             throw new BuildException('Preview address is unavailable: ' . $bind . '. ' . $error);
         }
         fclose($probe);
-        $this->process = new Process([PHP_BINARY, '-d', 'opcache.enable_cli=0', '-S', $bind, '-t', $session . '/public', __DIR__ . '/server-entry.php'], env: ['HANJI_DEV_STATE' => $session . '/state.json', 'PHP_CLI_SERVER_WORKERS' => false], timeout: null);
+        $this->input = new InputStream();
+        $this->process = new Process([PHP_BINARY, '-d', 'opcache.enable_cli=0', __DIR__ . '/server-entry.php', $bind, $session . '/state.json'], input: $this->input, timeout: null);
         $this->process->start();
         $until = microtime(true) + 5;
         do {
@@ -66,7 +69,15 @@ final class HttpServer
 
     public function close(): void
     {
+        $this->input->close();
         $this->process->stop(0.5);
+    }
+
+    /** @param array<string, mixed> $state */
+    public function publish(array $state): void
+    {
+        $this->input->write(json_encode($state, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n");
+        $this->process->isRunning();
     }
 
     public function __destruct()

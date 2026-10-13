@@ -11,6 +11,7 @@ final readonly class Router
 {
     public const CLIENT = '/__hanji/client.js';
     public const STATUS = '/__hanji/status';
+    public const SOCKET = '/__hanji/ws';
 
     private const TYPES = ['html' => 'text/html; charset=utf-8', 'css' => 'text/css; charset=utf-8', 'js' => 'text/javascript; charset=utf-8', 'mjs' => 'text/javascript; charset=utf-8', 'json' => 'application/json; charset=utf-8', 'xml' => 'application/xml; charset=utf-8', 'txt' => 'text/plain; charset=utf-8', 'svg' => 'image/svg+xml', 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif', 'webp' => 'image/webp', 'avif' => 'image/avif', 'ico' => 'image/x-icon', 'woff' => 'font/woff', 'woff2' => 'font/woff2', 'ttf' => 'font/ttf', 'pdf' => 'application/pdf', 'wasm' => 'application/wasm', 'mp4' => 'video/mp4', 'webm' => 'video/webm'];
 
@@ -37,7 +38,7 @@ final readonly class Router
             return new Response(headers: ['Content-Type' => self::TYPES['js']], file: __DIR__ . '/client.js');
         }
         if ($path === self::STATUS) {
-            $data = array_intersect_key($this->state, array_flip(['session', 'revision', 'status', 'error', 'changes', 'basePath']));
+            $data = self::publicState($this->state);
             return new Response(headers: ['Content-Type' => self::TYPES['json']], body: json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         }
         $project = Project::decode($this->state['project'] ?? null);
@@ -98,7 +99,16 @@ final readonly class Router
         return new Response(404, ['Content-Type' => self::TYPES['html']], $this->inject('<!doctype html><html><head><title>Page not found · Hanji</title></head><body><h1>404 · Page not found</h1></body></html>'));
     }
 
-    private function allowedHost(string $header): bool
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>
+     */
+    public static function publicState(array $state): array
+    {
+        return array_intersect_key($state, array_flip(['session', 'revision', 'status', 'error', 'changes', 'basePath']));
+    }
+
+    public function allowedHost(string $header): bool
     {
         $host = parse_url('http://' . $header, PHP_URL_HOST);
         if (!is_string($host)) {

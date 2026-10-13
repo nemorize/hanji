@@ -129,12 +129,13 @@ final class Reporter
         $this->errors->writeln(Style::color($error->trace, 'gray'), OutputInterface::VERBOSITY_VERBOSE);
     }
 
-    public function serving(string $url): void
+    public function serving(string $url, string $watcher): void
     {
         $this->output->writeln('');
         $this->field($this->output, 'Local', $url);
         $this->field($this->output, 'Watch', $this->path($this->settings->input ?? $this->root));
-        $this->field($this->output, 'Updates', 'CSS HMR · live reload');
+        $this->field($this->output, 'Watcher', $watcher);
+        $this->field($this->output, 'Updates', 'WebSocket · CSS HMR · live reload');
         $this->field($this->output, 'Stop', 'Ctrl+C');
         $this->output->writeln('');
     }

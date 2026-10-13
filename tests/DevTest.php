@@ -25,6 +25,8 @@ final class DevTest extends TestCase
     private Filesystem $files;
     private ?Runner $runner = null;
     private string $origin = '';
+    /** @var list<resource> */
+    private array $connections = [];
 
     protected function setUp(): void
     {
@@ -38,6 +40,11 @@ final class DevTest extends TestCase
 
     protected function tearDown(): void
     {
+        foreach ($this->connections as $connection) {
+            if (is_resource($connection)) {
+                fclose($connection);
+            }
+        }
         $this->runner?->close();
         $this->files->remove([$this->root, $this->root . '-rendering']);
     }
@@ -82,6 +89,59 @@ final class DevTest extends TestCase
         $state = $this->waitFor(static fn(array $state): bool => $state['revision'] === 3 && $state['status'] === 'ready');
         self::assertSame('reload', $state['changes'][2]['type']);
         self::assertStringContainsString('Updated', $this->get('/'));
+    }
+
+    public function testWebsocketPushesCssUpdatesToMultipleClientsWhileServingHttp(): void
+    {
+        $this->start();
+        $first = $this->connect();
+        $second = $this->connect();
+        self::assertSame(1, $this->message($first)['revision']);
+        self::assertSame(1, $this->message($second)['revision']);
+        self::assertStringContainsString('Original', $this->get('/'));
+        $this->write('site/style.css', 'body { color: blue; }');
+        foreach ([$first, $second] as $client) {
+            self::assertSame('building', $this->message($client)['status']);
+            $message = $this->message($client);
+            self::assertSame('ready', $message['status']);
+            self::assertSame(2, $message['revision']);
+            self::assertIsArray($message['changes']);
+            self::assertIsArray($message['changes'][1]);
+            self::assertSame('css', $message['changes'][1]['type']);
+            self::assertSame(['/style.css'], $message['changes'][1]['paths']);
+            self::assertStringNotContainsString($this->root, json_encode($message, JSON_THROW_ON_ERROR));
+        }
+        self::assertStringContainsString('blue', $this->get('/style.css'));
+        self::assertSame(2, $this->message($this->connect())['revision']);
+    }
+
+    public function testWebsocketPushesErrorsAndRecoveryWithoutIncrementingFailedBuilds(): void
+    {
+        $this->start();
+        $client = $this->connect();
+        $this->message($client);
+        $this->write('site/index.php', '<img src="./missing.svg">');
+        self::assertSame('building', $this->message($client)['status']);
+        $error = $this->message($client);
+        self::assertSame('error', $error['status']);
+        self::assertSame(1, $error['revision']);
+        self::assertIsArray($error['error']);
+        self::assertSame('Missing asset ./missing.svg', $error['error']['message']);
+        self::assertStringContainsString('Original', $this->get('/'));
+        $this->write('site/missing.svg', '<svg/>');
+        self::assertSame('building', $this->message($client)['status']);
+        $ready = $this->message($client);
+        self::assertSame('ready', $ready['status']);
+        self::assertSame(2, $ready['revision']);
+        self::assertNull($ready['error']);
+    }
+
+    public function testWebsocketRejectsForeignAndMissingOrigins(): void
+    {
+        $this->start();
+        $this->connect('https://untrusted.example', '403');
+        $this->connect('', '403');
+        $this->connect($this->origin, '403', 'untrusted.example');
     }
 
     public function testScssPartialChangesEmitCompiledCssUpdates(): void
@@ -316,6 +376,80 @@ final class DevTest extends TestCase
         $content = file_get_contents($this->origin . $path, false, stream_context_create(['http' => ['method' => $method, 'timeout' => 2, 'ignore_errors' => true]]));
         self::assertIsString($content);
         return $content;
+    }
+
+    /** @return resource */
+    private function connect(?string $origin = null, string $status = '101', ?string $host = null)
+    {
+        $connection = stream_socket_client('tcp://' . substr($this->origin, strlen('http://')), $code, $error, 2);
+        self::assertIsResource($connection);
+        $this->connections[] = $connection;
+        stream_set_timeout($connection, 2);
+        $host ??= substr($this->origin, strlen('http://'));
+        $request = "GET /__hanji/ws HTTP/1.1\r\nHost: {$host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: " . base64_encode(random_bytes(16)) . "\r\n";
+        $origin ??= $this->origin;
+        if ($origin !== '') {
+            $request .= "Origin: {$origin}\r\n";
+        }
+        fwrite($connection, $request . "\r\n");
+        $header = '';
+        do {
+            $line = fgets($connection);
+            self::assertIsString($line);
+            $header .= $line;
+        } while ($line !== "\r\n");
+        self::assertStringStartsWith('HTTP/1.1 ' . $status, $header);
+        stream_set_blocking($connection, false);
+        return $connection;
+    }
+
+    /**
+     * @param resource $connection
+     * @return array<string, mixed>
+     */
+    private function message($connection): array
+    {
+        $header = $this->bytes($connection, 2);
+        self::assertSame(0x81, ord($header[0]));
+        self::assertSame(0, ord($header[1]) & 0x80);
+        $length = ord($header[1]) & 0x7f;
+        if ($length === 126) {
+            $value = unpack('nlength', $this->bytes($connection, 2));
+            self::assertIsArray($value);
+            self::assertIsInt($value['length']);
+            $length = $value['length'];
+        }
+        self::assertLessThan(65536, $length);
+        $value = json_decode($this->bytes($connection, $length), true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($value);
+        $result = [];
+        foreach ($value as $key => $item) {
+            self::assertIsString($key);
+            $result[$key] = $item;
+        }
+        return $result;
+    }
+
+    /** @param resource $connection */
+    private function bytes($connection, int $length): string
+    {
+        $value = '';
+        $until = microtime(true) + 8;
+        do {
+            $remaining = $length - strlen($value);
+            if ($remaining <= 0) {
+                return $value;
+            }
+            $part = fread($connection, $remaining);
+            self::assertIsString($part);
+            $value .= $part;
+            if (strlen($value) === $length) {
+                return $value;
+            }
+            $this->runner?->tick();
+            usleep(10000);
+        } while (microtime(true) < $until);
+        self::fail('Timed out waiting for a WebSocket push.');
     }
 
     /** @return list<string> */
