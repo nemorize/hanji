@@ -44,6 +44,18 @@ final class WindowsNotificationsTest extends TestCase
         self::assertSame(65536, \FFI::sizeof($api->allocate('DWORD[16384]')));
     }
 
+    public function testOpaqueHandleValuesAreReadWithoutDereferencingThem(): void
+    {
+        if (!class_exists(\FFI::class) || in_array(ini_get('ffi.enable'), ['', '0', false], true)) {
+            self::markTestSkipped('PHP FFI is required to verify native handles.');
+        }
+        $api = new Native(WindowsDirectory::TYPES);
+        $handle = $api->allocate('HANDLE');
+        self::assertSame(0, $api->pointerValue($handle));
+        \FFI::memset(\FFI::addr($handle), 0xff, PHP_INT_SIZE);
+        self::assertSame(-1, $api->pointerValue($handle));
+    }
+
     #[DataProvider('invalidNotifications')]
     public function testMalformedNotificationsAreRejected(string $data): void
     {

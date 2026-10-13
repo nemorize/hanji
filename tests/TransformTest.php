@@ -27,7 +27,7 @@ final class TransformTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->root = sys_get_temp_dir() . '/hanji-transform-' . bin2hex(random_bytes(8));
+        $this->root = str_replace('\\', '/', sys_get_temp_dir()) . '/hanji-transform-' . bin2hex(random_bytes(8));
         $this->files = new Filesystem();
         $this->files->mkdir($this->root . '/site');
     }

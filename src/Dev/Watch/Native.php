@@ -45,6 +45,18 @@ final readonly class Native
         return $value->$member;
     }
 
+    public function pointerValue(\FFI\CData $pointer): int
+    {
+        $value = $this->allocate('intptr_t');
+        // Copy the pointer itself; casting an opaque handle to a scalar dereferences it.
+        \FFI::memcpy(\FFI::addr($value), \FFI::addr($pointer), \FFI::sizeof($value));
+        $integer = $this->member($value, 'cdata');
+        if (!is_int($integer)) {
+            throw new BuildException('Invalid native pointer value.');
+        }
+        return $integer;
+    }
+
     public function pointer(string $function, mixed ...$arguments): \FFI\CData
     {
         $value = $this->call($function, ...$arguments);

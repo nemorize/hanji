@@ -32,7 +32,7 @@ final class DevTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->root = realpath(sys_get_temp_dir()) . '/hanji-dev-test-' . bin2hex(random_bytes(8));
+        $this->root = str_replace('\\', '/', (string) realpath(sys_get_temp_dir())) . '/hanji-dev-test-' . bin2hex(random_bytes(8));
         $this->files = new Filesystem();
         $this->files->mkdir($this->root . '/site');
         $this->write('hanji.php', '<?php return new Hanji\\Config();');

@@ -28,7 +28,7 @@ final class Scanner
             if ($file->getFilename() === '@params.php' && !preg_match('/^\[[A-Za-z_][A-Za-z0-9_]*\]$/D', basename($file->getPath()))) {
                 throw new BuildException("{$relative}: @params.php requires a dynamic directory.");
             }
-            $files[$relative] = $file->getPathname();
+            $files[$relative] = str_replace('\\', '/', $file->getPathname());
         }
         ksort($files);
         return $files;

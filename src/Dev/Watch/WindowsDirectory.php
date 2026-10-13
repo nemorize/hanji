@@ -40,7 +40,7 @@ final class WindowsDirectory
             $wide = $api->allocate('WCHAR[' . intdiv(strlen($path), 2) . ']');
             \FFI::memcpy($wide, $path, strlen($path));
             $directory = $api->pointer('CreateFileW', $wide, 1, 7, null, 3, 0x42000000, null);
-            if ($api->member($api->cast('intptr_t', $directory), 'cdata') === -1) {
+            if ($api->pointerValue($directory) === -1) {
                 throw new BuildException('Cannot watch Windows directory: ' . $root . ' (error ' . $api->integer('GetLastError') . ').');
             }
             $this->directory = $directory;

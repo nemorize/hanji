@@ -51,6 +51,10 @@ final class Inotify implements Backend
             if (!in_array($directory, $this->directories, true)) {
                 $id = $this->api->integer('inotify_add_watch', $this->descriptor, $directory, 0x00000fce);
                 if ($id < 0) {
+                    clearstatcache(true, $directory);
+                    if (!is_dir($directory)) {
+                        continue;
+                    }
                     throw new BuildException('Cannot watch directory with inotify: ' . $directory);
                 }
                 $this->directories[$id] = $directory;
