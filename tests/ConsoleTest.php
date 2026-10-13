@@ -90,7 +90,7 @@ final class ConsoleTest extends TestCase
         self::assertSame(0, $tester->getStatusCode());
         self::assertStringContainsString("\x1b[", $tester->getDisplay());
         self::assertSame('', $tester->getErrorOutput());
-        self::assertStringNotContainsString("\r", $tester->getDisplay());
+        self::assertStringNotContainsString("\r", $tester->getDisplay(true));
         self::assertStringNotContainsString("\x1b[2K", $tester->getDisplay());
         self::assertStringNotContainsString('site/index.php →', $tester->getDisplay());
     }

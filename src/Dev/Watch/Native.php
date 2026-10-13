@@ -17,7 +17,14 @@ final readonly class Native
 
     public function call(string $function, mixed ...$arguments): mixed
     {
-        return $this->ffi->$function(...$arguments);
+        if (getenv('HANJI_NATIVE_TRACE')) {
+            fwrite(STDERR, 'Native call: ' . $function . "\n");
+        }
+        $result = $this->ffi->$function(...$arguments);
+        if (getenv('HANJI_NATIVE_TRACE')) {
+            fwrite(STDERR, 'Native returned: ' . $function . "\n");
+        }
+        return $result;
     }
 
     public function buffer(int $length): \FFI\CData

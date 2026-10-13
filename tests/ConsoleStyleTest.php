@@ -58,7 +58,7 @@ final class ConsoleStyleTest extends TestCase
         $line->update('1/2 files');
         $line->update('2/2 files');
         $line->finish();
-        self::assertSame("  › build    2 files\n", $output->fetch());
+        self::assertSame('  › build    2 files' . PHP_EOL, $output->fetch());
         self::assertSame('', $live->fetch());
     }
 
@@ -68,7 +68,7 @@ final class ConsoleStyleTest extends TestCase
         foreach ([12, 24, 49] as $width) {
             $output = new BufferedOutput();
             $output->writeln(Style::row('✓', 'prepare', $path, 'green', '120ms', $width));
-            $text = rtrim($output->fetch(), "\n");
+            $text = rtrim($output->fetch(), "\r\n");
             self::assertLessThanOrEqual($width, mb_strwidth($text, 'UTF-8'));
             self::assertTrue(mb_check_encoding($text, 'UTF-8'));
         }

@@ -119,7 +119,9 @@ final class ControlChannelTest extends TestCase
             if (substr_count($result, "\n") === $lines) {
                 return $result;
             }
-            usleep(1000);
+            if ($chunk === '') {
+                usleep(1000);
+            }
         } while (microtime(true) < $until);
         self::fail('Control channel update timed out.');
     }
