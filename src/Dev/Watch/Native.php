@@ -17,14 +17,7 @@ final readonly class Native
 
     public function call(string $function, mixed ...$arguments): mixed
     {
-        if (getenv('HANJI_NATIVE_TRACE')) {
-            fwrite(STDERR, 'Native call: ' . $function . "\n");
-        }
-        $result = $this->ffi->$function(...$arguments);
-        if (getenv('HANJI_NATIVE_TRACE')) {
-            fwrite(STDERR, 'Native returned: ' . $function . "\n");
-        }
-        return $result;
+        return $this->ffi->$function(...$arguments);
     }
 
     public function buffer(int $length): \FFI\CData
@@ -62,6 +55,14 @@ final readonly class Native
             throw new BuildException('Invalid native pointer value.');
         }
         return $integer;
+    }
+
+    public function readBuffer(\FFI\CData $buffer, int $length): string
+    {
+        if ($length < 0 || $length > \FFI::sizeof($buffer)) {
+            throw new BuildException('Native buffer read exceeds allocated memory.');
+        }
+        return $length === 0 ? '' : \FFI::string($this->cast('char *', \FFI::addr($buffer)), $length);
     }
 
     public function pointer(string $function, mixed ...$arguments): \FFI\CData

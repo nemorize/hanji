@@ -84,7 +84,7 @@ final class WindowsDirectory
         if (!is_int($length) || $length < 0 || $length > 65536) {
             throw new BuildException('Invalid Windows notification buffer length.');
         }
-        $data = $length === 0 ? '' : \FFI::string($this->api->cast('char *', $this->buffer), $length);
+        $data = $this->api->readBuffer($this->buffer, $length);
         $this->arm();
         return $length === 0 ? [$this->root] : WindowsNotifications::paths($this->root, $data);
     }

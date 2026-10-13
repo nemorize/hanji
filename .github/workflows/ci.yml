@@ -45,8 +45,6 @@ jobs:
 
       - name: Diagnose Windows test failures
         if: failure() && runner.os == 'Windows'
-        env:
-          HANJI_NATIVE_TRACE: '1'
         run: php vendor/bin/phpunit --debug --process-isolation
 
       - name: Build starter site
