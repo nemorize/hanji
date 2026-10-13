@@ -43,6 +43,10 @@ jobs:
       - name: Run development checks
         run: composer check
 
+      - name: Diagnose Windows test failures
+        if: failure() && runner.os == 'Windows'
+        run: php vendor/bin/phpunit --testdox --process-isolation
+
       - name: Build starter site
         run: |
           php bin/hanji init .ci-site
