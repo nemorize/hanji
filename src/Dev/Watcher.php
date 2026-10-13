@@ -9,6 +9,7 @@ use Hanji\Dev\Watch\FSEvents;
 use Hanji\Dev\Watch\Inotify;
 use Hanji\Dev\Watch\Polling;
 use Hanji\Dev\Watch\Scope;
+use Hanji\Dev\Watch\Windows;
 
 final class Watcher
 {
@@ -91,6 +92,9 @@ final class Watcher
                 }
                 if (PHP_OS_FAMILY === 'Linux') {
                     return new Inotify($scope);
+                }
+                if (PHP_OS_FAMILY === 'Windows') {
+                    return new Windows($scope);
                 }
             }
         } catch (\Throwable) {

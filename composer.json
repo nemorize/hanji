@@ -27,7 +27,7 @@
         "scssphp/scssphp": "^2.1"
     },
     "suggest": {
-        "ext-ffi": "Enables native FSEvents (macOS) and inotify (Linux) file watching.",
+        "ext-ffi": "Enables native file watching on macOS, Linux and Windows.",
         "scssphp/scssphp": "^2.1 enables the optional PHP SCSS build plugin."
     },
     "autoload": {

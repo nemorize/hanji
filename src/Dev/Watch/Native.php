@@ -25,6 +25,26 @@ final readonly class Native
         return $this->ffi->new('char[' . $length . ']');
     }
 
+    public function allocate(string $type): \FFI\CData
+    {
+        return $this->ffi->new($type);
+    }
+
+    public function cast(string $type, \FFI\CData $value): \FFI\CData
+    {
+        return $this->ffi->cast($type, $value);
+    }
+
+    public function set(\FFI\CData $value, string $member, mixed $data): void
+    {
+        $value->$member = $data;
+    }
+
+    public function member(\FFI\CData $value, string $member): mixed
+    {
+        return $value->$member;
+    }
+
     public function pointer(string $function, mixed ...$arguments): \FFI\CData
     {
         $value = $this->call($function, ...$arguments);

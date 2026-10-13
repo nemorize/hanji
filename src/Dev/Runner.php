@@ -96,6 +96,13 @@ final class Runner
     {
         $signals = [];
         $async = false;
+        $controlHandler = null;
+        if (function_exists('sapi_windows_set_ctrl_handler')) {
+            $controlHandler = function (int $event): void {
+                $this->stopped = true;
+            };
+            sapi_windows_set_ctrl_handler($controlHandler);
+        }
         if (function_exists('pcntl_signal') && function_exists('pcntl_async_signals')) {
             $async = pcntl_async_signals(true);
             foreach ([SIGINT, SIGTERM] as $signal) {
@@ -114,6 +121,9 @@ final class Runner
             }
         } finally {
             $this->close();
+            if ($controlHandler !== null) {
+                sapi_windows_set_ctrl_handler($controlHandler, false);
+            }
             foreach ($signals as $signal => $handler) {
                 pcntl_signal($signal, $handler);
             }

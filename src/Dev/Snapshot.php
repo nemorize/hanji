@@ -18,6 +18,7 @@ final class Snapshot
         $files = self::tree($project->root, [...$excluded, $project->output, $project->cache, $project->root . '/.hanji'], true);
         $files = [...$files, ...self::tree($project->input)];
         foreach ([$config, ...$dependencies] as $path) {
+            $path = Paths::absolute($path, $project->root);
             if ($path !== $config && (self::excluded($path, [...$excluded, $project->output, $project->cache, $project->root . '/.hanji']) || preg_match('~/(?:vendor|node_modules)/~', $path))) {
                 continue;
             }

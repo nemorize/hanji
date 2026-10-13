@@ -7,12 +7,11 @@ namespace Hanji\Dev;
 use Hanji\BuildException;
 use Hanji\ConfigurationException;
 use Symfony\Component\Process\Process;
-use Symfony\Component\Process\InputStream;
 
 final class HttpServer
 {
     private readonly Process $process;
-    private readonly InputStream $input;
+    private readonly ControlChannel $control;
     public readonly int $port;
 
     public function __construct(private readonly string $host, int $port, string $session)
@@ -25,23 +24,27 @@ final class HttpServer
             throw new BuildException('Preview address is unavailable: ' . $bind . '. ' . $error);
         }
         fclose($probe);
-        $this->input = new InputStream();
-        $this->process = new Process([PHP_BINARY, '-d', 'opcache.enable_cli=0', __DIR__ . '/server-entry.php', $bind, $session . '/state.json'], input: $this->input, timeout: null);
-        $this->process->start();
-        $until = microtime(true) + 5;
-        do {
-            if (!$this->process->isRunning()) {
-                throw new BuildException('Cannot start preview server at ' . $bind . ': ' . trim($this->process->getErrorOutput()));
-            }
-            $socket = @stream_socket_client('tcp://' . self::address($this->connectHost(), $this->port), $code, $error, 0.05);
-            if (is_resource($socket)) {
-                fclose($socket);
-                return;
-            }
-            usleep(10000);
-        } while (microtime(true) < $until);
-        $this->close();
-        throw new BuildException('Preview server did not start at ' . $bind . '.');
+        $this->control = new ControlChannel();
+        $this->process = new Process([PHP_BINARY, '-d', 'opcache.enable_cli=0', __DIR__ . '/server-entry.php', $bind, $session . '/state.json', $this->control->address], env: ['HANJI_DEV_CONTROL_TOKEN' => $this->control->token], timeout: null);
+        try {
+            $this->process->start();
+            $until = microtime(true) + 5;
+            $output = '';
+            do {
+                if (!$this->process->isRunning()) {
+                    throw new BuildException('Cannot start preview server at ' . $bind . ': ' . trim($this->process->getErrorOutput()));
+                }
+                $output .= $this->process->getIncrementalOutput();
+                if ($this->control->accept() && preg_match('/(?:^|\n)ready\r?\n/', $output)) {
+                    return;
+                }
+                usleep(10000);
+            } while (microtime(true) < $until);
+            throw new BuildException('Preview server did not start at ' . $bind . '.');
+        } catch (\Throwable $error) {
+            $this->close();
+            throw $error;
+        }
     }
 
     public function url(Project $project): string
@@ -61,6 +64,7 @@ final class HttpServer
         if (!$this->process->isRunning()) {
             throw new BuildException('Preview server stopped unexpectedly: ' . trim($this->process->getErrorOutput()));
         }
+        $this->control->poll();
         $output = $this->process->getIncrementalErrorOutput();
         $this->process->clearErrorOutput();
         $this->process->clearOutput();
@@ -69,15 +73,14 @@ final class HttpServer
 
     public function close(): void
     {
-        $this->input->close();
+        $this->control->close();
         $this->process->stop(0.5);
     }
 
     /** @param array<string, mixed> $state */
     public function publish(array $state): void
     {
-        $this->input->write(json_encode($state, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES) . "\n");
-        $this->process->isRunning();
+        $this->control->send($state);
     }
 
     public function __destruct()

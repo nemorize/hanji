@@ -103,13 +103,17 @@ final class WatcherTest extends TestCase
 
     private function native(): void
     {
-        if (!in_array(PHP_OS_FAMILY, ['Darwin', 'Linux'], true) || !class_exists(\FFI::class) || in_array(ini_get('ffi.enable'), ['', '0', false], true)) {
-            self::markTestSkipped('Native file watching requires PHP FFI on macOS or Linux.');
+        if (!in_array(PHP_OS_FAMILY, ['Darwin', 'Linux', 'Windows'], true) || !class_exists(\FFI::class) || in_array(ini_get('ffi.enable'), ['', '0', false], true)) {
+            self::markTestSkipped('Native file watching requires PHP FFI.');
         }
         $watcher = new Watcher();
         $this->watcher = $watcher;
         $this->configure();
-        self::assertSame(PHP_OS_FAMILY === 'Darwin' ? 'FSEvents · native' : 'inotify · native', $watcher->name());
+        self::assertSame(match (PHP_OS_FAMILY) {
+            'Darwin' => 'FSEvents · native',
+            'Linux' => 'inotify · native',
+            default => 'ReadDirectoryChangesW · native',
+        }, $watcher->name());
     }
 
     private function configure(): void

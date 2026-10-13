@@ -9,11 +9,17 @@ use Hanji\Support\Paths;
 
 final readonly class Scope
 {
+    /** @var list<string> */
+    public array $dependencies;
+
     /**
      * @param list<string> $dependencies
      * @param list<string> $excluded
      */
-    public function __construct(public Project $project, public string $config, public array $dependencies, public array $excluded) {}
+    public function __construct(public Project $project, public string $config, array $dependencies, public array $excluded)
+    {
+        $this->dependencies = array_map(static fn(string $path): string => Paths::absolute($path, $project->root), $dependencies);
+    }
 
     public function includes(string $path): bool
     {
@@ -92,8 +98,9 @@ final readonly class Scope
         }
         $directories[] = $path;
         foreach (new \DirectoryIterator($path) as $entry) {
-            if (!$entry->isDot() && $entry->isDir() && !$entry->isLink() && $this->includes($entry->getPathname())) {
-                $this->directory($entry->getPathname(), $directories);
+            $child = str_replace('\\', '/', $entry->getPathname());
+            if (!$entry->isDot() && $entry->isDir() && !$entry->isLink() && $this->includes($child)) {
+                $this->directory($child, $directories);
             }
         }
     }

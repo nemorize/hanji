@@ -31,6 +31,8 @@ jobs:
           php-version: '8.5'
           tools: composer:v2
           coverage: none
+          extensions: ffi
+          ini-values: ffi.enable=1
 
       - name: Install dependencies
         run: composer install --no-interaction --prefer-dist --no-progress

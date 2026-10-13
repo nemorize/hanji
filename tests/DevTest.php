@@ -13,10 +13,12 @@ use Hanji\Dev\Protocol;
 use Hanji\Dev\Router;
 use Hanji\Dev\Runner;
 use Hanji\Dev\Snapshot;
+use Hanji\Dev\ControlChannel;
 use Hanji\Diagnostic;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Process\Process;
 
 /** @phpstan-type PreviewState array{revision: int, status: string, error: array{message: string, source: ?string}|null, changes: list<array{type: string, paths: list<string>}>, basePath: string} */
 final class DevTest extends TestCase
@@ -359,6 +361,43 @@ final class DevTest extends TestCase
         $port = parse_url($this->origin, PHP_URL_PORT);
         $this->runner?->close();
         self::assertFalse(@stream_socket_client('tcp://127.0.0.1:' . $port, $code, $error, 0.1));
+    }
+
+    public function testServerExitsWhenTheControlConnectionClosesWithoutDependingOnStdin(): void
+    {
+        $settings = (new Config())->resolve($this->root);
+        (new Builder())->build($settings);
+        $project = Project::from($settings);
+        $statePath = $this->root . '/state.json';
+        $state = new LiveState($project, $statePath, '127.0.0.1');
+        $state->ready($project, [], Snapshot::tree($project->output));
+        $listener = stream_socket_server('tcp://127.0.0.1:0', $code, $error);
+        self::assertIsResource($listener);
+        $address = stream_socket_get_name($listener, false);
+        self::assertIsString($address);
+        fclose($listener);
+        $channel = new ControlChannel();
+        $server = new Process([PHP_BINARY, __DIR__ . '/../src/Dev/server-entry.php', $address, $statePath, $channel->address], env: ['HANJI_DEV_CONTROL_TOKEN' => $channel->token], timeout: 5);
+        try {
+            $server->start();
+            $until = microtime(true) + 4;
+            do {
+                $running = $server->isRunning();
+                self::assertTrue($running, $server->getErrorOutput());
+                if ($channel->accept() && preg_match('/(?:^|\n)ready\r?\n/', $server->getOutput())) {
+                    break;
+                }
+                usleep(10000);
+            } while (microtime(true) < $until);
+            $this->origin = 'http://' . $address;
+            self::assertStringContainsString('Original', $this->get('/'));
+            $channel->close();
+            self::assertSame(0, $server->wait(), $server->getErrorOutput());
+            self::assertFalse(@stream_socket_client('tcp://' . $address, $code, $error, 0.1));
+        } finally {
+            $channel->close();
+            $server->stop(0.5);
+        }
     }
 
     private function start(): void
