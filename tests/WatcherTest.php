@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Hanji\Tests;
 
 use Hanji\Config;
+use Hanji\BuildException;
 use Hanji\Dev\Project;
 use Hanji\Dev\Watcher;
 use Hanji\Dev\Watch\Scope;
 use Hanji\Dev\Watch\Polling;
+use Hanji\Dev\Watch\Backend;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
 
@@ -75,6 +77,92 @@ final class WatcherTest extends TestCase
         self::assertSame('polling · native watcher unavailable', $backend->name());
         self::assertSame([$this->root], $backend->events());
         self::assertSame([], $backend->events());
+    }
+
+    public function testBackendFailureKeepsNewAndDeletedFilesAndContinuesPolling(): void
+    {
+        $backend = new class implements Backend {
+            public bool $closed = false;
+            public function configure(Scope $scope): void {}
+            public function events(): array
+            {
+                throw new BuildException('The watched directory disappeared.');
+            }
+            public function name(): string
+            {
+                return 'failing native watcher';
+            }
+            public function close(): void
+            {
+                $this->closed = true;
+            }
+        };
+        $watcher = new Watcher($backend);
+        $this->watcher = $watcher;
+        $this->configure();
+        $this->write('site/new/deep/page.php', 'New page');
+        $this->files->remove($this->root . '/site/style.css');
+        self::assertSame([$this->root . '/site/new/deep/page.php', $this->root . '/site/style.css'], $watcher->changes());
+        self::assertTrue($backend->closed);
+        self::assertSame('polling · native watcher failed', $watcher->name());
+        self::assertSame([], $watcher->changes());
+        $this->write('site/another.php', 'Another page');
+        self::assertSame([$this->root . '/site/another.php'], $this->changes());
+    }
+
+    public function testBackendReconfigurationFailurePreservesPendingChanges(): void
+    {
+        $backend = new class implements Backend {
+            public bool $closed = false;
+            public int $configurations = 0;
+            public function configure(Scope $scope): void
+            {
+                if (++$this->configurations > 1) {
+                    throw new BuildException('Cannot watch a deleted directory.');
+                }
+            }
+            public function events(): array
+            {
+                return [];
+            }
+            public function name(): string
+            {
+                return 'failing native watcher';
+            }
+            public function close(): void
+            {
+                $this->closed = true;
+                throw new BuildException('The native watch was already removed.');
+            }
+        };
+        $watcher = new Watcher($backend);
+        $this->watcher = $watcher;
+        $this->configure();
+        $this->write('site/new.php', 'New page');
+        $this->files->remove($this->root . '/site/style.css');
+        $this->configure();
+        self::assertSame([$this->root . '/site/new.php', $this->root . '/site/style.css'], $watcher->changes());
+        self::assertTrue($backend->closed);
+        self::assertSame('polling · native watcher failed', $watcher->name());
+        self::assertSame([], $watcher->changes());
+    }
+
+    public function testScopeSkipsDirectoriesThatCannotBeOpened(): void
+    {
+        $directory = $this->root . '/site/unreadable';
+        $this->files->mkdir($directory);
+        chmod($directory, 0000);
+        try {
+            if (is_readable($directory)) {
+                self::markTestSkipped('This platform does not enforce directory read permissions.');
+            }
+            $project = Project::from((new Config())->resolve($this->root));
+            $scope = new Scope($project, $this->root . '/hanji.php', [], []);
+            self::assertContains($this->root . '/site', $scope->directories());
+            self::assertNotContains($directory, $scope->directories());
+        } finally {
+            chmod($directory, 0700);
+        }
     }
 
     public function testReconfigurationKeepsEditsBeforeNativeEventsAreDelivered(): void

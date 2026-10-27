@@ -96,8 +96,14 @@ final readonly class Scope
         if (is_link($path) || !is_dir($path)) {
             return;
         }
+        try {
+            $entries = new \DirectoryIterator($path);
+        } catch (\UnexpectedValueException) {
+            // A directory can disappear between discovery and opening it.
+            return;
+        }
         $directories[] = $path;
-        foreach (new \DirectoryIterator($path) as $entry) {
+        foreach ($entries as $entry) {
             $child = str_replace('\\', '/', $entry->getPathname());
             if (!$entry->isDot() && $entry->isDir() && !$entry->isLink() && $this->includes($child)) {
                 $this->directory($child, $directories);

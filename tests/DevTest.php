@@ -222,6 +222,28 @@ final class DevTest extends TestCase
         self::assertFileDoesNotExist($this->root . '/_site/two/index.html');
     }
 
+    public function testExternalPageCreationRenameAndDeletionKeepThePreviewRunning(): void
+    {
+        $this->start();
+        $this->mutateExternally('mkdir($root . "/site/new/deep", 0777, true); file_put_contents($root . "/site/new/deep/page.php", "Created externally");');
+        $state = $this->waitFor(static fn(array $state): bool => $state['revision'] >= 2 && $state['status'] === 'ready');
+        self::assertStringContainsString('Created externally', $this->get('/new/deep/page/'));
+
+        $this->mutateExternally('rename($root . "/site/new/deep/page.php", $root . "/site/new/deep/renamed.php");');
+        $state = $this->waitFor(static fn(array $next): bool => $next['revision'] > $state['revision'] && $next['status'] === 'ready');
+        self::assertStringContainsString('Created externally', $this->get('/new/deep/renamed/'));
+        self::assertStringContainsString('404', $this->headers('/new/deep/page/')[0]);
+
+        $this->mutateExternally('unlink($root . "/site/new/deep/renamed.php"); rmdir($root . "/site/new/deep"); rmdir($root . "/site/new");');
+        $state = $this->waitFor(static fn(array $next): bool => $next['revision'] > $state['revision'] && $next['status'] === 'ready');
+        self::assertStringContainsString('404', $this->headers('/new/deep/renamed/')[0]);
+        self::assertStringContainsString('Original', $this->get('/'));
+
+        $this->mutateExternally('mkdir($root . "/site/new/deep", 0777, true); file_put_contents($root . "/site/new/deep/renamed.php", "Recreated externally");');
+        $this->waitFor(static fn(array $next): bool => $next['revision'] > $state['revision'] && $next['status'] === 'ready');
+        self::assertStringContainsString('Recreated externally', $this->get('/new/deep/renamed/'));
+    }
+
     public function testNewWorkersReloadConfigAndPhpClassesWithoutRedeclarationErrors(): void
     {
         $this->write('site/@helper.php', '<?php class Greeting { public static function text(): string { return "First"; } }');
@@ -408,6 +430,11 @@ final class DevTest extends TestCase
         $port = parse_url($url, PHP_URL_PORT);
         self::assertIsInt($port);
         $this->origin = 'http://127.0.0.1:' . $port;
+    }
+
+    private function mutateExternally(string $code): void
+    {
+        (new Process([PHP_BINARY, '-r', '$root = $argv[1]; ' . $code, $this->root], timeout: 5))->mustRun();
     }
 
     private function get(string $path, string $method = 'GET'): string

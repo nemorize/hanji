@@ -13,12 +13,13 @@ use Hanji\Dev\Watch\Windows;
 
 final class Watcher
 {
-    private ?Backend $backend = null;
     private ?Scope $scope = null;
     /** @var array<string, string> */
     private array $snapshot = [];
     /** @var array<string, true> */
     private array $pending = [];
+
+    public function __construct(private ?Backend $backend = null) {}
 
     /**
      * @param list<string> $dependencies
@@ -27,10 +28,14 @@ final class Watcher
     public function configure(Project $project, string $config, array $dependencies, array $excluded): void
     {
         $scope = new Scope($project, $config, $dependencies, $excluded);
-        if ($this->backend === null) {
-            $this->backend = $this->create($scope);
-        } else {
-            $this->backend->configure($scope);
+        try {
+            if ($this->backend === null) {
+                $this->backend = $this->create($scope);
+            } else {
+                $this->backend->configure($scope);
+            }
+        } catch (\Throwable) {
+            $this->fallback($scope);
         }
         $next = Snapshot::sources($project, $config, $dependencies, $excluded);
         if ($this->scope !== null) {
@@ -53,7 +58,12 @@ final class Watcher
         if ($scope === null || $backend === null) {
             return [];
         }
-        $events = array_filter($backend->events(), $scope->includes(...));
+        try {
+            $events = $backend->events();
+        } catch (\Throwable) {
+            $events = $this->fallback($scope)->events();
+        }
+        $events = array_filter($events, $scope->includes(...));
         if ($events !== []) {
             $next = Snapshot::sources($scope->project, $scope->config, $scope->dependencies, $scope->excluded);
             foreach (Snapshot::changes($this->snapshot, $next) as $path) {
@@ -100,5 +110,14 @@ final class Watcher
         } catch (\Throwable) {
         }
         return new Polling($scope, 'native watcher unavailable');
+    }
+
+    private function fallback(Scope $scope): Backend
+    {
+        try {
+            $this->backend?->close();
+        } catch (\Throwable) {
+        }
+        return $this->backend = new Polling($scope, 'native watcher failed');
     }
 }
