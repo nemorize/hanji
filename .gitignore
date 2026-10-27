@@ -13,5 +13,3 @@ _site/
 .env
 .env.*
 !.env.example
-
-README.md

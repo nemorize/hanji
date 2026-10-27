@@ -37,7 +37,7 @@ final class ConsoleTest extends TestCase
         $this->write('site/photo.png', "\0\xffPNG");
         $tester = $this->runCommand('build');
         self::assertSame(0, $tester->getStatusCode());
-        self::assertMatchesRegularExpression('/HANJI  v0\.1\.0-dev  build\n\n  › scan     site\n  › prepare  pages · assets\n  › build    3 files\n  › publish  _site\n\n  ✓ Built 1 page and 2 assets in (?:\d+ms|\d+\.\d{2}s)\n    Output   _site\//', $tester->getDisplay(true));
+        self::assertMatchesRegularExpression('/HANJI  v' . preg_quote(Console::VERSION, '/') . '  build\n\n  › scan     site\n  › prepare  pages · assets\n  › build    3 files\n  › publish  _site\n\n  ✓ Built 1 page and 2 assets in (?:\d+ms|\d+\.\d{2}s)\n    Output   _site\//', $tester->getDisplay(true));
         self::assertSame('', $tester->getErrorOutput());
         self::assertStringNotContainsString($this->root, $tester->getDisplay());
         self::assertSame('Home', file_get_contents($this->root . '/_site/index.html'));

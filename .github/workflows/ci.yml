@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 permissions:
@@ -51,3 +52,49 @@ jobs:
         run: |
           php bin/hanji init .ci-site
           php bin/hanji build --config .ci-site/hanji.php
+
+  package:
+    name: Composer distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          tools: composer:v2
+          coverage: none
+
+      - name: Build package archive
+        run: git archive HEAD --format=zip --output="$RUNNER_TEMP/hanji.zip"
+
+      - name: Install archived package
+        run: |
+          mkdir "$RUNNER_TEMP/hanji-consumer"
+          php <<'PHP'
+          <?php
+          $temporary = getenv('RUNNER_TEMP');
+          $package = json_decode(file_get_contents('composer.json'), true, flags: JSON_THROW_ON_ERROR);
+          $package['version'] = '0.0.0';
+          $package['dist'] = ['type' => 'zip', 'url' => 'file://' . $temporary . '/hanji.zip'];
+          $project = [
+              'repositories' => [['type' => 'package', 'package' => $package]],
+              'require' => ['nemorize/hanji' => '0.0.0'],
+              'config' => ['allow-plugins' => false],
+          ];
+          file_put_contents($temporary . '/hanji-consumer/composer.json', json_encode($project, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR));
+          PHP
+          composer install --working-dir="$RUNNER_TEMP/hanji-consumer" --no-dev --no-interaction --prefer-dist --no-progress --optimize-autoloader
+
+      - name: Build starter from installed package
+        working-directory: ${{ runner.temp }}/hanji-consumer
+        run: |
+          php vendor/bin/hanji --version
+          php vendor/bin/hanji init .
+          php vendor/bin/hanji build
+          test -f _site/index.html
+          test ! -d vendor/nemorize/hanji/tests

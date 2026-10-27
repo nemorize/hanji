@@ -8,3 +8,14 @@
 *.ico binary
 *.woff binary
 *.woff2 binary
+
+/.editorconfig export-ignore
+/.gitattributes export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/composer.lock export-ignore
+/examples export-ignore
+/phpstan.neon export-ignore
+/phpunit.xml.dist export-ignore
+/tests export-ignore

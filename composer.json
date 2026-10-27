@@ -1,8 +1,14 @@
 {
     "name": "nemorize/hanji",
     "description": "A lightweight static site generator for PHP.",
+    "keywords": ["blade", "markdown", "php", "static-site-generator"],
+    "homepage": "https://github.com/nemorize/hanji",
     "type": "library",
     "license": "proprietary",
+    "support": {
+        "issues": "https://github.com/nemorize/hanji/issues",
+        "source": "https://github.com/nemorize/hanji"
+    },
     "require": {
         "php": "^8.5",
         "amphp/http-server": "^3.4",
